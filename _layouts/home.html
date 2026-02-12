@@ -18,15 +18,3 @@ layout: default
     {% endfor %}
   </ul>
 </section>
-
-<section class="section">
-  <h2>Recent Research Notes</h2>
-  <ul class="list">
-    {% for note in site.notes limit:5 %}
-      <li>
-        <a href="{{ note.url | relative_url }}">{{ note.title }}</a>
-        <span class="meta">{{ note.date | date: "%b %d, %Y" }}</span>
-      </li>
-    {% endfor %}
-  </ul>
-</section>
