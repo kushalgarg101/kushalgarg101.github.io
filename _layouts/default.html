@@ -22,19 +22,19 @@
         const btn = document.getElementById('themeToggle');
         if (!btn) return;
 
-        const syncAria = () => {
-          const isDark = root.getAttribute('data-theme') === 'dark';
-          btn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
-          btn.setAttribute('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme');
+        const applyState = (theme) => {
+          root.setAttribute('data-theme', theme);
+          btn.classList.toggle('is-dark', theme === 'dark');
+          btn.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
+          btn.setAttribute('aria-label', theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
         };
 
-        syncAria();
+        applyState(initial);
         btn.addEventListener('click', function () {
           const isDark = root.getAttribute('data-theme') === 'dark';
           const next = isDark ? 'light' : 'dark';
-          root.setAttribute('data-theme', next);
+          applyState(next);
           localStorage.setItem('theme', next);
-          syncAria();
         });
       })();
     </script>
