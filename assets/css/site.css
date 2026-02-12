@@ -143,7 +143,7 @@ body {
 
 .theme-toggle {
   margin-left: 18px;
-  padding: 6px 10px;
+  padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--card);
@@ -154,22 +154,46 @@ body {
   gap: 8px;
   align-items: center;
   cursor: pointer;
+  box-shadow: var(--shadow);
 }
 
-.theme-toggle__sun, .theme-toggle__moon {
-  opacity: 0.6;
+.theme-toggle__icon {
+  display: inline-flex;
+  color: var(--muted);
+}
+
+.theme-toggle__track {
+  width: 36px;
+  height: 20px;
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+}
+
+.theme-toggle__knob {
+  width: 14px;
+  height: 14px;
+  background: var(--card);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  transform: translateX(0);
+  transition: transform 160ms ease;
+}
+
+[data-theme="dark"] .theme-toggle__knob {
+  transform: translateX(16px);
 }
 
 [data-theme="dark"] .theme-toggle__moon {
-  opacity: 1;
-}
-
-[data-theme="dark"] .theme-toggle__sun {
-  opacity: 0.4;
+  color: var(--accent);
 }
 
 [data-theme="light"] .theme-toggle__sun {
-  opacity: 1;
+  color: var(--accent);
 }
 
 @media (max-width: 640px) {

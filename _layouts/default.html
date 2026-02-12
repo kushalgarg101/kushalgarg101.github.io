@@ -15,16 +15,26 @@
       (function () {
         const root = document.documentElement;
         const stored = localStorage.getItem('theme');
-        if (stored === 'dark' || stored === 'light') {
-          root.setAttribute('data-theme', stored);
-        }
+        const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const initial = stored === 'dark' || stored === 'light' ? stored : (prefersDark ? 'dark' : 'light');
+        root.setAttribute('data-theme', initial);
+
         const btn = document.getElementById('themeToggle');
         if (!btn) return;
+
+        const syncAria = () => {
+          const isDark = root.getAttribute('data-theme') === 'dark';
+          btn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
+          btn.setAttribute('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme');
+        };
+
+        syncAria();
         btn.addEventListener('click', function () {
-          const current = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
-          const next = current === 'dark' ? 'light' : 'dark';
+          const isDark = root.getAttribute('data-theme') === 'dark';
+          const next = isDark ? 'light' : 'dark';
           root.setAttribute('data-theme', next);
           localStorage.setItem('theme', next);
+          syncAria();
         });
       })();
     </script>
