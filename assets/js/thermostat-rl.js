@@ -134,6 +134,9 @@
       return Math.random() < 0.5 ? 0 : 1;
     }
     const [qOff, qOn] = state.qTable[sIdx];
+    if (qOn === qOff) {
+      return Math.random() < 0.5 ? 0 : 1;
+    }
     return qOn > qOff ? 1 : 0;
   }
 
