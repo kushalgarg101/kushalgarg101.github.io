@@ -4,6 +4,11 @@
   --muted: #666a73;
   --accent: #0f5e9c;
   --accent-soft: #0f5e9c20;
+  --chart-line: rgba(20, 20, 20, 0.85);
+  --grid-line: rgba(0, 0, 0, 0.08);
+  --action-on: #f08a5d;
+  --action-off: #4f6d7a;
+  --reward-good: #1f7a1f;
   --card: #ffffff;
   --border: #e7e7e7;
   --shadow: 0 6px 22px rgba(0, 0, 0, 0.06);
@@ -16,6 +21,11 @@
   --muted: #a0a6b3;
   --accent: #7db2ff;
   --accent-soft: #7db2ff2b;
+  --chart-line: rgba(230, 230, 230, 0.9);
+  --grid-line: rgba(255, 255, 255, 0.08);
+  --action-on: #ff9b73;
+  --action-off: #8aa0b3;
+  --reward-good: #47c464;
   --card: #151922;
   --border: #242a36;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -211,4 +221,191 @@ body {
   }
   .site-nav a { margin-left: 0; margin-right: 12px; }
   .hero h1 { font-size: 32px; }
+}
+
+/* Thermostat RL demo */
+.demo-hero {
+  margin-bottom: 28px;
+}
+
+.demo-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 28px;
+  align-items: start;
+}
+
+.demo-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+
+.demo-panel h2 {
+  font-family: "Work Sans", sans-serif;
+  font-size: 18px;
+  margin-top: 0;
+  margin-bottom: 14px;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.control-group label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.control-group input[type="number"],
+.control-group input[type="range"] {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Work Sans", sans-serif;
+}
+
+.control-actions {
+  display: flex;
+  gap: 10px;
+  margin: 18px 0 10px;
+}
+
+.control-actions button {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--accent);
+  color: #fff;
+  font-family: "Work Sans", sans-serif;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.control-actions button:nth-child(2) {
+  background: #51607a;
+}
+
+.control-actions button:nth-child(3) {
+  background: #2a313f;
+}
+
+.speed-readout {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.control-advanced {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 6px;
+}
+
+.control-advanced summary {
+  font-family: "Work Sans", sans-serif;
+  font-size: 14px;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+
+.demo-visuals {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.readouts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.readouts .label {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 6px;
+  font-family: "Work Sans", sans-serif;
+}
+
+.chart-card,
+.timeline-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+.chart-card canvas,
+.timeline-card canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chart-legend,
+.timeline-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 10px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.legend-swatch.temp { background: var(--chart-line); }
+.legend-swatch.target { background: var(--accent); }
+.legend-swatch.reward { background: var(--accent-soft); }
+.legend-swatch.on { background: var(--action-on); }
+.legend-swatch.off { background: var(--action-off); }
+.legend-swatch.good { background: var(--reward-good); }
+
+.timeline-card h3 {
+  margin-top: 0;
+  font-family: "Work Sans", sans-serif;
+  font-size: 16px;
+}
+
+.demo-notes {
+  margin-top: 36px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px;
+}
+
+.note-list {
+  padding-left: 18px;
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .demo-grid {
+    grid-template-columns: 1fr;
+  }
 }
