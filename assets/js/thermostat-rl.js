@@ -362,6 +362,8 @@
 
   function startRun() {
     if (running) return;
+    state.config = readConfig();
+    ui.epsilonOut.textContent = state.config.epsilon.toFixed(2);
     running = true;
     ui.startBtn.textContent = 'Pause';
     const speed = Math.max(1, state.config.speed);
@@ -396,6 +398,22 @@
     if (running) {
       pauseRun();
       startRun();
+    }
+  });
+
+  const configInputs = [
+    ui.targetTemp, ui.initialTemp, ui.noise, ui.alpha, ui.gamma,
+    ui.epsilon, ui.epsilonDecay, ui.episodeLen, ui.heatRate,
+    ui.coolRate, ui.rewardBand, ui.actionCost, ui.minTemp,
+    ui.maxTemp, ui.binSize
+  ];
+
+  configInputs.forEach(function(input) {
+    if (input) {
+      input.addEventListener('change', function() {
+        state.config = readConfig();
+        ui.epsilonOut.textContent = state.config.epsilon.toFixed(2);
+      });
     }
   });
 
