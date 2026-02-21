@@ -22,7 +22,7 @@ permalink: /thermostat-rl/
     </div>
     <div class="control-group">
       <label for="noise">Noise (°F)</label>
-      <input id="noise" type="number" value="0.6" step="0.1" />
+      <input id="noise" type="number" value="0.4" step="0.1" />
     </div>
     <div class="control-group">
       <label for="alpha">Learning rate (alpha)</label>
@@ -34,18 +34,18 @@ permalink: /thermostat-rl/
     </div>
     <div class="control-group">
       <label for="epsilon">Exploration (epsilon)</label>
-      <input id="epsilon" type="number" value="0.15" step="0.01" min="0" max="1" />
+      <input id="epsilon" type="number" value="0.2" step="0.01" min="0" max="1" />
     </div>
     <div class="control-group">
       <label for="episodeLen">Episode length (steps)</label>
-      <input id="episodeLen" type="number" value="120" step="10" min="10" />
+      <input id="episodeLen" type="number" value="160" step="10" min="10" />
     </div>
 
     <details class="control-advanced">
       <summary>Advanced</summary>
       <div class="control-group">
         <label for="heatRate">Heat rate (°F per step)</label>
-        <input id="heatRate" type="number" value="0.8" step="0.1" />
+        <input id="heatRate" type="number" value="1.0" step="0.1" />
       </div>
       <div class="control-group">
         <label for="coolRate">Cool rate (°F per step)</label>
@@ -57,7 +57,7 @@ permalink: /thermostat-rl/
       </div>
       <div class="control-group">
         <label for="actionCost">Heater action cost</label>
-        <input id="actionCost" type="number" value="0.05" step="0.01" min="0" />
+        <input id="actionCost" type="number" value="0" step="0.01" min="0" />
       </div>
       <div class="control-group">
         <label for="minTemp">Min temperature clamp (°F)</label>
