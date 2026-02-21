@@ -8,6 +8,7 @@
     alpha: qs('alpha'),
     gamma: qs('gamma'),
     epsilon: qs('epsilon'),
+    epsilonDecay: qs('epsilonDecay'),
     episodeLen: qs('episodeLen'),
     heatRate: qs('heatRate'),
     coolRate: qs('coolRate'),
@@ -57,6 +58,7 @@
     alpha: 0.15,
     gamma: 0.95,
     epsilon: 0.2,
+    epsilonDecay: 0.98,
     episodeLen: 160,
     heatRate: 1.0,
     coolRate: 0.6,
@@ -85,6 +87,7 @@
       alpha: clamp01(num(ui.alpha.value, fallback.alpha)),
       gamma: clamp01(num(ui.gamma.value, fallback.gamma)),
       epsilon: clamp01(num(ui.epsilon.value, fallback.epsilon)),
+      epsilonDecay: clamp01(num(ui.epsilonDecay.value, fallback.epsilonDecay)),
       episodeLen: Math.max(10, intVal(ui.episodeLen.value, fallback.episodeLen)),
       heatRate: num(ui.heatRate.value, fallback.heatRate),
       coolRate: num(ui.coolRate.value, fallback.coolRate),
@@ -177,6 +180,7 @@
       state.episode += 1;
       state.step = 0;
       state.temp = cfg.initialTemp;
+      state.config.epsilon = Math.max(0.01, state.config.epsilon * state.config.epsilonDecay);
     }
 
     render();
@@ -225,6 +229,7 @@
 
   function drawChart(canvas, cfg, temps) {
     const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     const { width, height } = syncCanvasSize(canvas);
 
     ctx.clearRect(0, 0, width, height);
@@ -278,6 +283,7 @@
 
   function drawTimeline(canvas, cfg, actions, inBandFlags) {
     const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     const { width, height } = syncCanvasSize(canvas);
     ctx.clearRect(0, 0, width, height);
     const styles = getComputedStyle(document.documentElement);
@@ -318,7 +324,8 @@
   function drawGrid(ctx, width, height, color) {
     ctx.strokeStyle = color || 'rgba(0, 0, 0, 0.05)';
     ctx.lineWidth = 1;
-    const step = 40;
+    const dpr = window.devicePixelRatio || 1;
+    const step = 40 * dpr;
     for (let x = 0; x < width; x += step) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
@@ -344,7 +351,12 @@
     state.rewardHistory = [];
     state.bandHistory = [];
     ui.speedVal.textContent = state.config.speed;
-    updateReadouts(0, 0);
+    ui.episodeOut.textContent = state.episode;
+    ui.stepOut.textContent = state.step;
+    ui.tempOut.textContent = state.temp.toFixed(1) + '°F';
+    ui.actionOut.textContent = '--';
+    ui.rewardOut.textContent = '--';
+    ui.epsilonOut.textContent = state.config.epsilon.toFixed(2);
     render();
   }
 
@@ -352,7 +364,7 @@
     if (running) return;
     running = true;
     ui.startBtn.textContent = 'Pause';
-    const speed = Math.max(1, parseInt(ui.speed.value, 10));
+    const speed = Math.max(1, state.config.speed);
     intervalId = setInterval(stepOnce, 1000 / speed);
   }
 
@@ -379,7 +391,8 @@
     resetSimulation();
   });
   ui.speed.addEventListener('input', function () {
-    ui.speedVal.textContent = ui.speed.value;
+    state.config.speed = Math.max(1, parseInt(ui.speed.value, 10) || DEFAULTS.speed);
+    ui.speedVal.textContent = state.config.speed;
     if (running) {
       pauseRun();
       startRun();
@@ -388,6 +401,13 @@
 
   window.addEventListener('resize', function () {
     render();
+  });
+
+  window.addEventListener('beforeunload', function () {
+    if (intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
   });
 
   resetSimulation();

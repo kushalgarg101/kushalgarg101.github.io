@@ -32,12 +32,16 @@ permalink: /thermostat-rl/
       <label for="gamma">Discount (gamma)</label>
       <input id="gamma" type="number" value="0.95" step="0.01" min="0" max="1" />
     </div>
-    <div class="control-group">
-      <label for="epsilon">Exploration (epsilon)</label>
-      <input id="epsilon" type="number" value="0.2" step="0.01" min="0" max="1" />
-    </div>
-    <div class="control-group">
-      <label for="episodeLen">Episode length (steps)</label>
+      <div class="control-group">
+        <label for="epsilon">Exploration (epsilon)</label>
+        <input id="epsilon" type="number" value="0.2" step="0.01" min="0" max="1" />
+      </div>
+      <div class="control-group">
+        <label for="epsilonDecay">Epsilon decay</label>
+        <input id="epsilonDecay" type="number" value="0.98" step="0.01" min="0.9" max="1" />
+      </div>
+      <div class="control-group">
+        <label for="episodeLen">Episode length (steps)</label>
       <input id="episodeLen" type="number" value="160" step="10" min="10" />
     </div>
 
@@ -91,9 +95,9 @@ permalink: /thermostat-rl/
       <div><span class="label">Episode</span> <span id="episodeOut">1</span></div>
       <div><span class="label">Step</span> <span id="stepOut">0</span></div>
       <div><span class="label">Temp</span> <span id="tempOut">65.0°F</span></div>
-      <div><span class="label">Action</span> <span id="actionOut">off</span></div>
-      <div><span class="label">Reward</span> <span id="rewardOut">0.00</span></div>
-      <div><span class="label">Epsilon</span> <span id="epsilonOut">0.15</span></div>
+      <div><span class="label">Action</span> <span id="actionOut">--</span></div>
+      <div><span class="label">Reward</span> <span id="rewardOut">--</span></div>
+      <div><span class="label">Epsilon</span> <span id="epsilonOut">0.20</span></div>
     </div>
 
     <div class="chart-card">
