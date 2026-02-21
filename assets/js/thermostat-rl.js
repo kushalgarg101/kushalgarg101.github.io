@@ -411,8 +411,24 @@
   configInputs.forEach(function(input) {
     if (input) {
       input.addEventListener('change', function() {
+        const wasRunning = running;
+        if (wasRunning) pauseRun();
         state.config = readConfig();
         ui.epsilonOut.textContent = state.config.epsilon.toFixed(2);
+        ui.tempOut.textContent = state.config.initialTemp.toFixed(1) + '°F';
+        state.temp = state.config.initialTemp;
+        state.episode = 1;
+        state.step = 0;
+        state.history = [];
+        state.actionHistory = [];
+        state.rewardHistory = [];
+        state.bandHistory = [];
+        state.qTable = initQTable(state.config);
+        ui.episodeOut.textContent = state.episode;
+        ui.stepOut.textContent = state.step;
+        ui.actionOut.textContent = '--';
+        ui.rewardOut.textContent = '--';
+        render();
       });
     }
   });
