@@ -220,8 +220,14 @@
   function syncCanvasSize(canvas) {
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    const width = Math.max(1, Math.floor(rect.width * dpr));
-    const height = Math.max(1, Math.floor(rect.height * dpr));
+
+    // If rect is 0 (unrendered or collapsed), fallback to attributes or defaults
+    let w = rect.width || canvas.clientWidth || parseInt(canvas.getAttribute('width')) || 300;
+    let h = rect.height || canvas.clientHeight || parseInt(canvas.getAttribute('height')) || 150;
+
+    const width = Math.floor(w * dpr);
+    const height = Math.floor(h * dpr);
+
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
@@ -288,10 +294,10 @@
     if (!ctx) return;
     const { width, height } = syncCanvasSize(canvas);
     ctx.clearRect(0, 0, width, height);
-    
+
     const cx = width / 2;
     const cy = height / 2;
-    const radius = Math.min(cx, cy) - 20;
+    const radius = Math.max(10, Math.min(cx, cy) - 20);
 
     const styles = getComputedStyle(document.documentElement);
     const bgCol = styles.getPropertyValue('--bg').trim();
@@ -312,12 +318,12 @@
     let ringColor = borderCol;
     if (actionIdx === 1) ringColor = actionOnCol;
     else if (inBand) ringColor = rewardGoodCol;
-    
+
     ctx.strokeStyle = ringColor;
     ctx.globalAlpha = 0.3; // Glow
     ctx.stroke();
     ctx.globalAlpha = 1.0;
-    
+
     // Target Line Arc
     const minT = cfg.minTemp;
     const maxT = cfg.maxTemp;
@@ -349,17 +355,31 @@
     ctx.stroke();
     ctx.globalAlpha = 1.0;
 
-    // Current Temp Needle
-    const currentAngle = angleForTemp(temp);
+    // Track background
     ctx.beginPath();
-    const markerRadius = radius - 16;
-    ctx.moveTo(cx, cy);
-    const mX = cx + Math.cos(currentAngle) * markerRadius;
-    const mY = cy + Math.sin(currentAngle) * markerRadius;
-    ctx.arc(cx, cy, radius - 16, 0.75 * Math.PI, currentAngle);
+    ctx.arc(cx, cy, radius - 16, 0.75 * Math.PI, 2.25 * Math.PI);
     ctx.strokeStyle = actionIdx === 1 ? actionOnCol : textCol;
     ctx.lineWidth = 8;
+    ctx.globalAlpha = 0.2;
     ctx.stroke();
+    ctx.globalAlpha = 1.0;
+
+    // Current Temp Needle
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    const mX = cx + Math.cos(currentAngle) * (radius - 12);
+    const mY = cy + Math.sin(currentAngle) * (radius - 12);
+    ctx.lineTo(mX, mY);
+    ctx.strokeStyle = actionIdx === 1 ? actionOnCol : textCol;
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // Pivot dot
+    ctx.beginPath();
+    ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+    ctx.fillStyle = textCol;
+    ctx.fill();
 
     // Center Text
     ctx.textAlign = 'center';
@@ -367,7 +387,7 @@
     ctx.fillStyle = textCol;
     ctx.font = '700 36px Work Sans, sans-serif';
     ctx.fillText(temp.toFixed(1) + '°', cx, cy - 10);
-    
+
     ctx.fillStyle = actionIdx === 1 ? actionOnCol : mutedCol;
     ctx.font = '600 14px Work Sans, sans-serif';
     ctx.fillText(actionIdx === 1 ? 'HEATING' : 'IDLE', cx, cy + 24);
@@ -384,11 +404,11 @@
     const styles = getComputedStyle(document.documentElement);
     const textCol = styles.getPropertyValue('--text').trim();
     const mutedCol = styles.getPropertyValue('--muted').trim();
-    
+
     const pad = 30;
     const topPad = 20;
     const botPad = 25;
-    
+
     const bins = qTable.length;
     const cellW = (width - pad * 2) / bins;
     const cellH = (height - topPad - botPad) / 2;
@@ -401,7 +421,7 @@
     });
     // Add small buffer to prevent divide by zero
     if (Math.abs(maxQ - minQ) < 0.001) maxQ += 0.001;
-    
+
     const getColor = (val) => {
       // Scale val between 0 and 1
       const pct = (val - minQ) / (maxQ - minQ);
@@ -416,7 +436,7 @@
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = textCol;
-    ctx.fillText('Off', pad - 5, topPad + cellH/2);
+    ctx.fillText('Off', pad - 5, topPad + cellH / 2);
     ctx.fillText('On', pad - 5, topPad + cellH * 1.5);
 
     for (let i = 0; i < bins; i++) {
@@ -430,7 +450,7 @@
       // Draw Action On rect
       ctx.fillStyle = getColor(qOn);
       ctx.fillRect(x, topPad + cellH, cellW, cellH);
-      
+
       // Draw grid lines
       ctx.strokeStyle = 'rgba(0,0,0,0.1)';
       ctx.strokeRect(x, topPad, cellW, cellH);
@@ -443,10 +463,10 @@
     ctx.fillStyle = mutedCol;
     const ticks = 5;
     for (let i = 0; i <= ticks; i++) {
-      const tx = pad + ((width - pad*2) * (i / ticks));
+      const tx = pad + ((width - pad * 2) * (i / ticks));
       const tTemp = cfg.minTemp + (cfg.maxTemp - cfg.minTemp) * (i / ticks);
       ctx.fillText(tTemp.toFixed(0) + '°', tx, height - botPad + 5);
-      
+
       // Tick mark
       ctx.beginPath();
       ctx.moveTo(tx, height - botPad);
@@ -544,9 +564,9 @@
     ui.maxTemp, ui.binSize
   ];
 
-  configInputs.forEach(function(input) {
+  configInputs.forEach(function (input) {
     if (input) {
-      input.addEventListener('change', function() {
+      input.addEventListener('change', function () {
         const wasRunning = running;
         if (wasRunning) pauseRun();
         state.config = readConfig();
