@@ -29,10 +29,11 @@
     rewardOut: qs('rewardOut'),
     epsilonOut: qs('epsilonOut'),
     tempChart: qs('tempChart'),
-    timeline: qs('timeline')
+    thermostatDial: qs('thermostatDial'),
+    qTableHeatmap: qs('qTableHeatmap')
   };
 
-  if (!ui.tempChart || !ui.timeline) return;
+  if (!ui.tempChart || !ui.thermostatDial || !ui.qTableHeatmap) return;
 
   const ACTIONS = ['off', 'on'];
 
@@ -211,8 +212,9 @@
   }
 
   function render() {
+    drawThermostatDial(ui.thermostatDial, state.config, state.temp, state.actionHistory[state.actionHistory.length - 1] || 0, state.bandHistory[state.bandHistory.length - 1] || false);
+    drawQTableHeatmap(ui.qTableHeatmap, state.config, state.qTable);
     drawChart(ui.tempChart, state.config, state.history);
-    drawTimeline(ui.timeline, state.config, state.actionHistory, state.bandHistory);
   }
 
   function syncCanvasSize(canvas) {
@@ -281,45 +283,179 @@
     ctx.fillText(maxT.toFixed(0) + '°F', 8, pad - 6);
   }
 
-  function drawTimeline(canvas, cfg, actions, inBandFlags) {
+  function drawThermostatDial(canvas, cfg, temp, actionIdx, inBand) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const { width, height } = syncCanvasSize(canvas);
     ctx.clearRect(0, 0, width, height);
+    
+    const cx = width / 2;
+    const cy = height / 2;
+    const radius = Math.min(cx, cy) - 20;
+
     const styles = getComputedStyle(document.documentElement);
-    ctx.fillStyle = styles.getPropertyValue('--card').trim();
-    ctx.fillRect(0, 0, width, height);
+    const bgCol = styles.getPropertyValue('--bg').trim();
+    const borderCol = styles.getPropertyValue('--border').trim();
+    const accentCol = styles.getPropertyValue('--accent').trim();
+    const actionOnCol = styles.getPropertyValue('--action-on').trim();
+    const textCol = styles.getPropertyValue('--text').trim();
+    const mutedCol = styles.getPropertyValue('--muted').trim();
+    const rewardGoodCol = styles.getPropertyValue('--reward-good').trim();
 
-    const pad = 24;
-    const rowY = height / 2;
-
-    ctx.strokeStyle = styles.getPropertyValue('--grid-line').trim();
+    // Outer Ring
     ctx.beginPath();
-    ctx.moveTo(pad, rowY);
-    ctx.lineTo(width - pad, rowY);
+    ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+    ctx.fillStyle = bgCol;
+    ctx.fill();
+    ctx.lineWidth = 12;
+    // Determine the glow color
+    let ringColor = borderCol;
+    if (actionIdx === 1) ringColor = actionOnCol;
+    else if (inBand) ringColor = rewardGoodCol;
+    
+    ctx.strokeStyle = ringColor;
+    ctx.globalAlpha = 0.3; // Glow
+    ctx.stroke();
+    ctx.globalAlpha = 1.0;
+    
+    // Target Line Arc
+    const minT = cfg.minTemp;
+    const maxT = cfg.maxTemp;
+    const range = maxT - minT;
+    const angleForTemp = (t) => {
+      let pct = (t - minT) / range;
+      pct = clamp01(pct);
+      // Maps 0-1 to angles from 135deg to 45deg (wrapping bottom)
+      const startAngle = 0.75 * Math.PI; // 135deg
+      const totalSweep = 1.5 * Math.PI; // 270deg sweep
+      return startAngle + pct * totalSweep;
+    };
+
+    // Draw inner track
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius - 16, 0.75 * Math.PI, 2.25 * Math.PI);
+    ctx.strokeStyle = borderCol;
+    ctx.lineWidth = 8;
+    ctx.lineCap = 'round';
     ctx.stroke();
 
-    if (!actions.length) return;
+    // Target Range band
+    const tStartAngle = angleForTemp(cfg.targetTemp - cfg.rewardBand);
+    const tEndAngle = angleForTemp(cfg.targetTemp + cfg.rewardBand);
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius - 16, tStartAngle, tEndAngle);
+    ctx.strokeStyle = accentCol;
+    ctx.globalAlpha = 0.5;
+    ctx.stroke();
+    ctx.globalAlpha = 1.0;
 
-    const stepX = (width - pad * 2) / Math.max(1, actions.length - 1);
-    actions.forEach((actionIdx, i) => {
-      const x = pad + stepX * i;
-      const inBand = inBandFlags[i];
-      ctx.fillStyle = actionIdx === 1
-        ? styles.getPropertyValue('--action-on').trim()
-        : styles.getPropertyValue('--action-off').trim();
-      ctx.beginPath();
-      ctx.arc(x, rowY, 4.5, 0, Math.PI * 2);
-      ctx.fill();
+    // Current Temp Needle
+    const currentAngle = angleForTemp(temp);
+    ctx.beginPath();
+    const markerRadius = radius - 16;
+    ctx.moveTo(cx, cy);
+    const mX = cx + Math.cos(currentAngle) * markerRadius;
+    const mY = cy + Math.sin(currentAngle) * markerRadius;
+    ctx.arc(cx, cy, radius - 16, 0.75 * Math.PI, currentAngle);
+    ctx.strokeStyle = actionIdx === 1 ? actionOnCol : textCol;
+    ctx.lineWidth = 8;
+    ctx.stroke();
 
-      if (inBand) {
-        ctx.fillStyle = styles.getPropertyValue('--reward-good').trim();
-        ctx.beginPath();
-        ctx.arc(x, rowY - 16, 3.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    });
+    // Center Text
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = textCol;
+    ctx.font = '700 36px Work Sans, sans-serif';
+    ctx.fillText(temp.toFixed(1) + '°', cx, cy - 10);
+    
+    ctx.fillStyle = actionIdx === 1 ? actionOnCol : mutedCol;
+    ctx.font = '600 14px Work Sans, sans-serif';
+    ctx.fillText(actionIdx === 1 ? 'HEATING' : 'IDLE', cx, cy + 24);
   }
+
+  function drawQTableHeatmap(canvas, cfg, qTable) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const { width, height } = syncCanvasSize(canvas);
+    ctx.clearRect(0, 0, width, height);
+
+    if (!qTable || qTable.length === 0) return;
+
+    const styles = getComputedStyle(document.documentElement);
+    const textCol = styles.getPropertyValue('--text').trim();
+    const mutedCol = styles.getPropertyValue('--muted').trim();
+    
+    const pad = 30;
+    const topPad = 20;
+    const botPad = 25;
+    
+    const bins = qTable.length;
+    const cellW = (width - pad * 2) / bins;
+    const cellH = (height - topPad - botPad) / 2;
+
+    // Determine max/min Q values for color scaling
+    let minQ = 0, maxQ = 0;
+    qTable.forEach(([qOff, qOn]) => {
+      minQ = Math.min(minQ, qOff, qOn);
+      maxQ = Math.max(maxQ, qOff, qOn);
+    });
+    // Add small buffer to prevent divide by zero
+    if (Math.abs(maxQ - minQ) < 0.001) maxQ += 0.001;
+    
+    const getColor = (val) => {
+      // Scale val between 0 and 1
+      const pct = (val - minQ) / (maxQ - minQ);
+      // Low (0) = Blue, High (1) = Red. RGB interpolation.
+      // Dark mode / light mode neutral coloring. Let's use HSL.
+      // 240 is Blue, 0 is Red.
+      const hue = 240 - (240 * pct);
+      return `hsl(${hue}, 80%, 60%)`;
+    };
+
+    ctx.font = '11px Work Sans, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = textCol;
+    ctx.fillText('Off', pad - 5, topPad + cellH/2);
+    ctx.fillText('On', pad - 5, topPad + cellH * 1.5);
+
+    for (let i = 0; i < bins; i++) {
+      const [qOff, qOn] = qTable[i];
+      const x = pad + i * cellW;
+
+      // Draw Action Off rect
+      ctx.fillStyle = getColor(qOff);
+      ctx.fillRect(x, topPad, cellW, cellH);
+
+      // Draw Action On rect
+      ctx.fillStyle = getColor(qOn);
+      ctx.fillRect(x, topPad + cellH, cellW, cellH);
+      
+      // Draw grid lines
+      ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+      ctx.strokeRect(x, topPad, cellW, cellH);
+      ctx.strokeRect(x, topPad + cellH, cellW, cellH);
+    }
+
+    // X Axis markings
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = mutedCol;
+    const ticks = 5;
+    for (let i = 0; i <= ticks; i++) {
+      const tx = pad + ((width - pad*2) * (i / ticks));
+      const tTemp = cfg.minTemp + (cfg.maxTemp - cfg.minTemp) * (i / ticks);
+      ctx.fillText(tTemp.toFixed(0) + '°', tx, height - botPad + 5);
+      
+      // Tick mark
+      ctx.beginPath();
+      ctx.moveTo(tx, height - botPad);
+      ctx.lineTo(tx, height - botPad + 3);
+      ctx.strokeStyle = mutedCol;
+      ctx.stroke();
+    }
+  }
+
 
   function drawGrid(ctx, width, height, color) {
     ctx.strokeStyle = color || 'rgba(0, 0, 0, 0.05)';

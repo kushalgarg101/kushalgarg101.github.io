@@ -1,0 +1,163 @@
+/* Premium Dashboard Styles for Thermostat RL */
+
+.thermostat-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.dashboard-top {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .dashboard-top {
+    grid-template-columns: 1fr;
+  }
+}
+
+.viz-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Base Card Styling (Premium solid colors, no glassmorphism) */
+.premium-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: var(--shadow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.premium-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="dark"] .premium-card:hover {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.premium-card h3 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  font-family: "Work Sans", sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.premium-card h3 svg {
+  width: 20px;
+  height: 20px;
+  color: var(--accent);
+}
+
+/* Thermostat Dial Container */
+.thermostat-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  padding: 20px 0;
+}
+
+.thermostat-container canvas {
+  max-width: 100%;
+  height: auto;
+  filter: drop-shadow(0 8px 16px rgba(0,0,0,0.1));
+}
+
+[data-theme="dark"] .thermostat-container canvas {
+  filter: drop-shadow(0 8px 16px rgba(0,0,0,0.6));
+}
+
+/* Q-Table Heatmap */
+.heatmap-container {
+  width: 100%;
+  overflow-x: auto;
+  padding-bottom: 8px; /* For scrollbar */
+}
+
+.heatmap-container canvas {
+  min-width: 600px; /* Ensure wide enough for bins */
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Control tweaks */
+.control-group input[type="number"],
+.control-group input[type="range"] {
+  background: var(--bg);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  border-radius: 8px;
+}
+
+.control-group input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.control-actions button {
+  font-weight: 600;
+  transition: background 0.2s, transform 0.1s;
+  border-radius: 8px;
+}
+
+.control-actions button:hover {
+  transform: translateY(-1px);
+}
+.control-actions button:active {
+  transform: translateY(1px);
+}
+
+/* Modern Readouts */
+.readouts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+}
+
+.readout-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.readout-item .label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.readout-item .value {
+  font-size: 18px;
+  font-family: monospace;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.value.accent { color: var(--accent); }
+.value.on { color: var(--action-on); }
+.value.off { color: var(--action-off); }
+
+@media (max-width: 600px) {
+  .readouts { grid-template-columns: repeat(2, 1fr); }
+}
