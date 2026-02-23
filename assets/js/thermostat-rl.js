@@ -295,6 +295,18 @@
     const { width, height } = syncCanvasSize(canvas);
     ctx.clearRect(0, 0, width, height);
 
+    const minT = cfg.minTemp;
+    const maxT = cfg.maxTemp;
+    const range = maxT - minT;
+    const angleForTemp = (t) => {
+      let pct = (t - minT) / range;
+      pct = clamp01(pct);
+      // Maps 0-1 to angles from 135deg to 45deg (wrapping bottom)
+      const startAngle = 0.75 * Math.PI; // 135deg
+      const totalSweep = 1.5 * Math.PI; // 270deg sweep
+      return startAngle + pct * totalSweep;
+    };
+
     const cx = width / 2;
     const cy = height / 2;
     const radius = Math.max(10, Math.min(cx, cy) - 20);
@@ -308,7 +320,11 @@
     const mutedCol = styles.getPropertyValue('--muted').trim();
     const rewardGoodCol = styles.getPropertyValue('--reward-good').trim();
 
-    // Outer Ring
+    // Current State Calculations
+    const currentAngle = angleForTemp(temp);
+    const trackRadius = Math.max(1, radius - 16);
+
+    // Outer Ring Glow
     ctx.beginPath();
     ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
     ctx.fillStyle = bgCol;
@@ -324,22 +340,11 @@
     ctx.stroke();
     ctx.globalAlpha = 1.0;
 
-    // Target Line Arc
-    const minT = cfg.minTemp;
-    const maxT = cfg.maxTemp;
-    const range = maxT - minT;
-    const angleForTemp = (t) => {
-      let pct = (t - minT) / range;
-      pct = clamp01(pct);
-      // Maps 0-1 to angles from 135deg to 45deg (wrapping bottom)
-      const startAngle = 0.75 * Math.PI; // 135deg
-      const totalSweep = 1.5 * Math.PI; // 270deg sweep
-      return startAngle + pct * totalSweep;
-    };
+    ctx.globalAlpha = 1.0;
 
     // Draw inner track
     ctx.beginPath();
-    ctx.arc(cx, cy, radius - 16, 0.75 * Math.PI, 2.25 * Math.PI);
+    ctx.arc(cx, cy, trackRadius, 0.75 * Math.PI, 2.25 * Math.PI);
     ctx.strokeStyle = borderCol;
     ctx.lineWidth = 8;
     ctx.lineCap = 'round';
@@ -349,15 +354,15 @@
     const tStartAngle = angleForTemp(cfg.targetTemp - cfg.rewardBand);
     const tEndAngle = angleForTemp(cfg.targetTemp + cfg.rewardBand);
     ctx.beginPath();
-    ctx.arc(cx, cy, radius - 16, tStartAngle, tEndAngle);
+    ctx.arc(cx, cy, trackRadius, tStartAngle, tEndAngle);
     ctx.strokeStyle = accentCol;
     ctx.globalAlpha = 0.5;
     ctx.stroke();
     ctx.globalAlpha = 1.0;
 
-    // Track background
+    // Track highlighter
     ctx.beginPath();
-    ctx.arc(cx, cy, radius - 16, 0.75 * Math.PI, 2.25 * Math.PI);
+    ctx.arc(cx, cy, trackRadius, 0.75 * Math.PI, 2.25 * Math.PI);
     ctx.strokeStyle = actionIdx === 1 ? actionOnCol : textCol;
     ctx.lineWidth = 8;
     ctx.globalAlpha = 0.2;
@@ -367,8 +372,8 @@
     // Current Temp Needle
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    const mX = cx + Math.cos(currentAngle) * (radius - 12);
-    const mY = cy + Math.sin(currentAngle) * (radius - 12);
+    const mX = cx + Math.cos(currentAngle) * (trackRadius - 4);
+    const mY = cy + Math.sin(currentAngle) * (trackRadius - 4);
     ctx.lineTo(mX, mY);
     ctx.strokeStyle = actionIdx === 1 ? actionOnCol : textCol;
     ctx.lineWidth = 6;
