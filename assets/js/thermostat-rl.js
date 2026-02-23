@@ -85,8 +85,8 @@
       cool: val(ui.coolRate, 0.6),
       band: Math.max(0, val(ui.rewardBand, 2)),
       cost: Math.max(0, val(ui.actionCost, 0)),
-      minT: val(ui.minTemp, 50),
-      maxT: val(ui.maxTemp, 90),
+      minT: val(ui.minTemp, 40),
+      maxT: val(ui.maxTemp, 100),
       bin: Math.max(0.5, val(ui.binSize, 1))
     };
 
@@ -251,6 +251,21 @@
     ctx.lineCap = 'round';
     ctx.stroke();
 
+    // Draw Ticks
+    const numTicks = 20;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = col('--border');
+    for (let i = 0; i <= numTicks; i++) {
+      const t = cfg.minT + (i / numTicks) * (cfg.maxT - cfg.minT);
+      const a = ang(t);
+      const inner = trackR + 8;
+      const outer = trackR + 15;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * inner, cy + Math.sin(a) * inner);
+      ctx.lineTo(cx + Math.cos(a) * outer, cy + Math.sin(a) * outer);
+      ctx.stroke();
+    }
+
     // Target Band Highlight
     ctx.beginPath();
     ctx.arc(cx, cy, trackR, ang(cfg.target - cfg.band), ang(cfg.target + cfg.band));
@@ -259,13 +274,14 @@
     ctx.stroke();
     ctx.globalAlpha = 1.0;
 
-    // Target Tick
+    // Target Tick (Visual indicator for target)
     const targetA = ang(cfg.target);
     ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(targetA) * (trackR - 10), cy + Math.sin(targetA) * (trackR - 10));
-    ctx.lineTo(cx + Math.cos(targetA) * (trackR + 10), cy + Math.sin(targetA) * (trackR + 10));
+    ctx.moveTo(cx + Math.cos(targetA) * (trackR - 12), cy + Math.sin(targetA) * (trackR - 12));
+    ctx.lineTo(cx + Math.cos(targetA) * (trackR + 12), cy + Math.sin(targetA) * (trackR + 12));
     ctx.strokeStyle = col('--accent');
     ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
     ctx.stroke();
 
     // Current Temp Needle
@@ -293,6 +309,20 @@
     ctx.fillStyle = isHeating ? col('--action-on') : col('--muted');
     ctx.font = `600 ${Math.floor(R * 0.12)}px "Work Sans", sans-serif`;
     ctx.fillText(isHeating ? '🔥 HEATING' : 'IDLE', cx, cy + 30);
+
+    // Min/Max Labels at the arc ends
+    ctx.fillStyle = col('--muted');
+    ctx.font = `500 ${Math.floor(R * 0.1)}px "Work Sans", sans-serif`;
+
+    // Label for Min
+    const minA = ang(cfg.minT);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${cfg.minT}°`, cx + Math.cos(minA) * (trackR + 25), cy + Math.sin(minA) * (trackR + 25));
+
+    // Label for Max
+    const maxA = ang(cfg.maxT);
+    ctx.textAlign = 'left';
+    ctx.fillText(`${cfg.maxT}°`, cx + Math.cos(maxA) * (trackR + 25), cy + Math.sin(maxA) * (trackR + 25));
   }
 
   /* ── 2. The Q-Table Heatmap ───────────────────────────── */
@@ -522,12 +552,24 @@
   });
 
   // Re-initialize if structure-changing inputs are modified while paused
-  const structuralInputs = [ui.minTemp, ui.maxTemp, ui.binSize, ui.initialTemp];
+  const structuralInputs = [ui.minTemp, ui.maxTemp, ui.binSize, ui.initialTemp, ui.targetTemp];
   structuralInputs.forEach(el => {
-    if (el) el.addEventListener('change', () => {
-      if (running) toggleRun();
-      initialize();
-    });
+    if (el) {
+      el.addEventListener('change', () => {
+        if (running) toggleRun();
+        initialize();
+      });
+      // Add input listener for immediate dial feedback when changing temps
+      if (el === ui.targetTemp || el === ui.initialTemp) {
+        el.addEventListener('input', () => {
+          if (!running) {
+            State.cfg = readConfig();
+            State.temp = State.cfg.init;
+            renderCanvases();
+          }
+        });
+      }
+    }
   });
 
   // Simple render tick for responsive resizing

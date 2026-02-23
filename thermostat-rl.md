@@ -22,10 +22,10 @@ permalink: /thermostat-rl/
 
       <div class="control-row">
         <label>Target °F
-          <input id="targetTemp" type="number" value="72" step="1">
+          <input id="targetTemp" type="number" value="72" step="1" min="40" max="100">
         </label>
         <label>Start °F
-          <input id="initialTemp" type="number" value="60" step="1">
+          <input id="initialTemp" type="number" value="60" step="1" min="40" max="100">
         </label>
       </div>
 
@@ -107,8 +107,8 @@ permalink: /thermostat-rl/
 <input id="coolRate"   type="hidden" value="0.6">
 <input id="rewardBand" type="hidden" value="2">
 <input id="actionCost" type="hidden" value="0">
-<input id="minTemp"    type="hidden" value="50">
-<input id="maxTemp"    type="hidden" value="90">
+<input id="minTemp"    type="hidden" value="40">
+<input id="maxTemp"    type="hidden" value="100">
 <input id="binSize"    type="hidden" value="1">
 
 <script src="{{ '/assets/js/thermostat-rl.js' | relative_url }}"></script>
