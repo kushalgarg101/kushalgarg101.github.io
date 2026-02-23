@@ -1,19 +1,24 @@
 (function () {
-  /* ── helpers ──────────────────────────────────────────── */
+  /* ── Utilities ────────────────────────────────────────── */
   const qs = (id) => document.getElementById(id);
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
   const clamp01 = (v) => clamp(v, 0, 1);
 
-  /* ── DOM refs ─────────────────────────────────────────── */
+  /* ── DOM References ───────────────────────────────────── */
   const ui = {
+    // Visible Inputs
     targetTemp: qs('targetTemp'),
     initialTemp: qs('initialTemp'),
-    noise: qs('noise'),
     alpha: qs('alpha'),
     gamma: qs('gamma'),
     epsilon: qs('epsilon'),
-    epsilonDecay: qs('epsilonDecay'),
     episodeLen: qs('episodeLen'),
+    speed: qs('speed'),
+    speedVal: qs('speedVal'),
+
+    // Hidden Advanced Inputs
+    noise: qs('noise'),
+    epsilonDecay: qs('epsilonDecay'),
     heatRate: qs('heatRate'),
     coolRate: qs('coolRate'),
     rewardBand: qs('rewardBand'),
@@ -21,383 +26,515 @@
     minTemp: qs('minTemp'),
     maxTemp: qs('maxTemp'),
     binSize: qs('binSize'),
+
+    // Buttons
     startBtn: qs('startBtn'),
     stepBtn: qs('stepBtn'),
     resetBtn: qs('resetBtn'),
-    speed: qs('speed'),
-    speedVal: qs('speedVal'),
+
+    // Outputs
     episodeOut: qs('episodeOut'),
     stepOut: qs('stepOut'),
     actionOut: qs('actionOut'),
     rewardOut: qs('rewardOut'),
     epsilonOut: qs('epsilonOut'),
+
+    // Canvases
     dial: qs('thermostatDial'),
     heatmap: qs('qTableHeatmap'),
     chart: qs('tempChart')
   };
 
-  // Bail out if essential canvases are missing
   if (!ui.dial || !ui.heatmap || !ui.chart) return;
 
-  /* ── state ────────────────────────────────────────────── */
-  const ACTIONS = ['off', 'on'];
-  let running = false, intervalId = null;
+  /* ── State & Config ───────────────────────────────────── */
+  const ACTIONS = ['OFF', 'ON'];
+  let running = false;
+  let intervalId = null;
 
-  const S = {
-    cfg: null, episode: 1, step: 0, temp: 0,
+  const State = {
+    cfg: null,
+    episode: 1,
+    step: 0,
+    temp: 0,
     qTable: [],
-    hist: [], actHist: [], rewHist: [], bandHist: []
+    history: [],      // Temperatures
+    actionHist: [],   // Actions taken
+    rewardHist: [],   // Rewards received
+    bandHist: []      // Was it in the target band?
   };
 
-  /* ── config ───────────────────────────────────────────── */
-  function num(el, fb) { const v = parseFloat(el && el.value); return Number.isFinite(v) ? v : fb; }
-  function int(el, fb) { const v = parseInt(el && el.value, 10); return Number.isFinite(v) ? v : fb; }
+  function val(el, fallback) {
+    const v = parseFloat(el && el.value);
+    return Number.isFinite(v) ? v : fallback;
+  }
 
-  function readCfg() {
+  function readConfig() {
     const c = {
-      target: num(ui.targetTemp, 72),
-      init: num(ui.initialTemp, 60),
-      noise: num(ui.noise, 0.4),
-      alpha: clamp01(num(ui.alpha, 0.15)),
-      gamma: clamp01(num(ui.gamma, 0.95)),
-      eps: clamp01(num(ui.epsilon, 0.2)),
-      decay: clamp01(num(ui.epsilonDecay, 0.985)),
-      epLen: Math.max(10, int(ui.episodeLen, 200)),
-      heat: num(ui.heatRate, 1),
-      cool: num(ui.coolRate, 0.6),
-      band: Math.max(0, num(ui.rewardBand, 2)),
-      cost: Math.max(0, num(ui.actionCost, 0)),
-      lo: num(ui.minTemp, 50),
-      hi: num(ui.maxTemp, 90),
-      bin: Math.max(0.5, num(ui.binSize, 1)),
-      speed: Math.max(1, int(ui.speed, 10))
+      target: val(ui.targetTemp, 72),
+      init: val(ui.initialTemp, 60),
+      alpha: clamp01(val(ui.alpha, 0.15)),
+      gamma: clamp01(val(ui.gamma, 0.95)),
+      eps: clamp01(val(ui.epsilon, 0.2)),
+      epLen: Math.max(10, val(ui.episodeLen, 200)),
+      speed: Math.max(1, parseInt(ui.speed.value, 10) || 10),
+
+      noise: val(ui.noise, 0.4),
+      decay: clamp01(val(ui.epsilonDecay, 0.985)),
+      heat: val(ui.heatRate, 1.0),
+      cool: val(ui.coolRate, 0.6),
+      band: Math.max(0, val(ui.rewardBand, 2)),
+      cost: Math.max(0, val(ui.actionCost, 0)),
+      minT: val(ui.minTemp, 50),
+      maxT: val(ui.maxTemp, 90),
+      bin: Math.max(0.5, val(ui.binSize, 1))
     };
-    if (c.hi <= c.lo) c.hi = c.lo + 1;
-    c.init = clamp(c.init, c.lo, c.hi);
+
+    if (c.maxT <= c.minT) c.maxT = c.minT + 1;
+    c.init = clamp(c.init, c.minT, c.maxT);
     return c;
   }
 
-  /* ── Q-learning core ──────────────────────────────────── */
-  function mkQ(c) {
-    const n = Math.floor((c.hi - c.lo) / c.bin) + 1;
-    return Array.from({ length: n }, () => [0, 0]);
-  }
-  function sIdx(c, t) {
-    return clamp(Math.floor((t - c.lo) / c.bin), 0, S.qTable.length - 1);
-  }
-  function pickAction(c, si) {
-    if (Math.random() < c.eps) return Math.random() < 0.5 ? 0 : 1;
-    const [a, b] = S.qTable[si];
-    return a === b ? (Math.random() < 0.5 ? 0 : 1) : (b > a ? 1 : 0);
-  }
-  function getReward(c, t, ai) {
-    const inBand = Math.abs(t - c.target) <= c.band;
-    return { val: (inBand ? 1 : 0) - (ai === 1 ? c.cost : 0), inBand };
-  }
-  function transition(c, t, ai) {
-    const d = ai === 1 ? c.heat : -c.cool;
-    return clamp(t + d + (Math.random() * 2 - 1) * c.noise, c.lo, c.hi);
+  /* ── Q-Learning Logic ─────────────────────────────────── */
+  function buildQTable(cfg) {
+    const bins = Math.floor((cfg.maxT - cfg.minT) / cfg.bin) + 1;
+    return Array.from({ length: bins }, () => [0, 0]);
   }
 
-  /* ── step / episode ───────────────────────────────────── */
-  const MAX_PTS = 300;
-  function push(t, ai, r, ib) {
-    S.hist.push(t); S.actHist.push(ai); S.rewHist.push(r); S.bandHist.push(ib);
-    if (S.hist.length > MAX_PTS) { S.hist.shift(); S.actHist.shift(); S.rewHist.shift(); S.bandHist.shift(); }
+  function getStateIndex(cfg, t) {
+    return clamp(Math.floor((t - cfg.minT) / cfg.bin), 0, State.qTable.length - 1);
   }
 
-  function step() {
-    const c = S.cfg;
-    const si = sIdx(c, S.temp);
-    const ai = pickAction(c, si);
-    const nt = transition(c, S.temp, ai);
-    const rw = getReward(c, nt, ai);
-    const ns = sIdx(c, nt);
-    // Q-update
-    const best = Math.max(S.qTable[ns][0], S.qTable[ns][1]);
-    S.qTable[si][ai] += c.alpha * (rw.val + c.gamma * best - S.qTable[si][ai]);
+  function selectAction(cfg, sIdx) {
+    // Epsilon-greedy
+    if (Math.random() < cfg.eps) return Math.random() < 0.5 ? 0 : 1;
 
-    S.temp = nt; S.step++;
-    push(nt, ai, rw.val, rw.inBand);
+    // Greedy
+    const [qOff, qOn] = State.qTable[sIdx];
+    if (qOn === qOff) return Math.random() < 0.5 ? 0 : 1;
+    return qOn > qOff ? 1 : 0;
+  }
 
-    // readouts
-    ui.stepOut.textContent = S.step;
-    ui.actionOut.textContent = ACTIONS[ai];
-    ui.rewardOut.textContent = rw.val.toFixed(2);
-    ui.epsilonOut.textContent = c.eps.toFixed(3);
-    ui.episodeOut.textContent = S.episode;
+  function calcReward(cfg, t, aIdx) {
+    const inBand = Math.abs(t - cfg.target) <= cfg.band;
+    const base = inBand ? 1 : 0;
+    const cost = aIdx === 1 ? cfg.cost : 0;
+    return { val: base - cost, inBand };
+  }
 
-    if (S.step >= c.epLen) {
-      S.episode++; S.step = 0; S.temp = c.init;
-      c.eps = Math.max(0.01, c.eps * c.decay);
+  function stepEnvironment() {
+    const cfg = State.cfg;
+    const sIdx = getStateIndex(cfg, State.temp);
+
+    // Choose Action
+    const aIdx = selectAction(cfg, sIdx);
+
+    // Transition
+    const drift = aIdx === 1 ? cfg.heat : -cfg.cool;
+    const noise = (Math.random() * 2 - 1) * cfg.noise;
+    const nextTemp = clamp(State.temp + drift + noise, cfg.minT, cfg.maxT);
+
+    // Reward
+    const rw = calcReward(cfg, nextTemp, aIdx);
+
+    // Update Q-Table
+    const nextSIdx = getStateIndex(cfg, nextTemp);
+    const bestNextQ = Math.max(State.qTable[nextSIdx][0], State.qTable[nextSIdx][1]);
+    const oldQ = State.qTable[sIdx][aIdx];
+    State.qTable[sIdx][aIdx] = oldQ + cfg.alpha * (rw.val + cfg.gamma * bestNextQ - oldQ);
+
+    // Commit State
+    State.temp = nextTemp;
+    State.step++;
+
+    // Rolling History (Max 300 points for chart)
+    State.history.push(nextTemp);
+    State.actionHist.push(aIdx);
+    State.rewardHist.push(rw.val);
+    State.bandHist.push(rw.inBand);
+    if (State.history.length > 300) {
+      State.history.shift();
+      State.actionHist.shift();
+      State.rewardHist.shift();
+      State.bandHist.shift();
     }
-    render();
+
+    // Episode End
+    if (State.step >= cfg.epLen) {
+      State.episode++;
+      State.step = 0;
+      State.temp = cfg.init;
+      cfg.eps = Math.max(0.01, cfg.eps * cfg.decay); // Decay exploration
+    }
+
+    updateUI(aIdx, rw.val, cfg.eps);
+    renderCanvases();
   }
 
-  /* ── render orchestrator ──────────────────────────────── */
-  function render() {
+  /* ── UI & Rendering ───────────────────────────────────── */
+  function updateUI(aIdx, rwVal, eps) {
+    ui.stepOut.textContent = State.step;
+    ui.episodeOut.textContent = State.episode;
+    ui.actionOut.textContent = ACTIONS[aIdx];
+    ui.actionOut.className = 'stat-val ' + (aIdx === 1 ? 'col-action-on' : 'col-text');
+    ui.rewardOut.textContent = rwVal.toFixed(2);
+    ui.rewardOut.className = 'stat-val ' + (rwVal > 0 ? 'col-accent' : 'col-text');
+    ui.epsilonOut.textContent = eps.toFixed(3);
+  }
+
+  // Robust Canvas Sizing based on explicit CSS wrapper dimensions
+  function sizeCanvas(cv) {
+    const wrapper = cv.parentElement;
+    const dpr = window.devicePixelRatio || 1;
+    // ClientWidth is 0 if display:none, so we fallback nicely
+    const cssW = wrapper.clientWidth || 300;
+    const cssH = wrapper.clientHeight || 150;
+
+    const w = Math.floor(cssW * dpr);
+    const h = Math.floor(cssH * dpr);
+
+    if (cv.width !== w || cv.height !== h) {
+      cv.width = w;
+      cv.height = h;
+    }
+    return { w, h, dpr, ctx: cv.getContext('2d') };
+  }
+
+  function renderCanvases() {
     drawDial();
     drawHeatmap();
-    drawHistory();
+    drawChart();
   }
 
-  function canvasSize(cv) {
-    const r = cv.getBoundingClientRect();
-    const dpr = devicePixelRatio || 1;
-    const w = Math.floor((r.width || cv.width) * dpr);
-    const h = Math.floor((r.height || cv.height) * dpr);
-    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
-    return { w, h, dpr };
-  }
-
-  /* ── Thermostat Dial ──────────────────────────────────── */
+  /* ── 1. The Dial ──────────────────────────────────────── */
   function drawDial() {
-    const cv = ui.dial, ctx = cv.getContext('2d');
+    const { w, h, ctx } = sizeCanvas(ui.dial);
     if (!ctx) return;
-    const { w, h } = canvasSize(cv);
     ctx.clearRect(0, 0, w, h);
 
-    const c = S.cfg;
-    const cx = w / 2, cy = h / 2;
-    const R = Math.max(20, Math.min(cx, cy) - 16);
-    const tr = R * 0.78;                // track radius
-    const nr = R * 0.72;                // needle length
+    const cx = w / 2;
+    const cy = h / 2;
+    // Leave room for stroke and glow
+    const R = Math.max(10, Math.min(cx, cy) - 20);
 
-    // helpers
-    const pct = (t) => clamp01((t - c.lo) / (c.hi - c.lo));
-    const ANG_START = Math.PI * 0.75;    // 135°
-    const ANG_SWEEP = Math.PI * 1.5;     // 270°
-    const ang = (t) => ANG_START + pct(t) * ANG_SWEEP;
-
-    const lastAct = S.actHist.length ? S.actHist[S.actHist.length - 1] : 0;
-    const lastBand = S.bandHist.length ? S.bandHist[S.bandHist.length - 1] : false;
-
+    const cfg = State.cfg;
     const cs = getComputedStyle(document.documentElement);
-    const col = (n) => cs.getPropertyValue(n).trim();
+    const col = (name) => cs.getPropertyValue(name).trim();
 
-    // ── outer circle bg
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI);
-    ctx.fillStyle = col('--card'); ctx.fill();
-    ctx.lineWidth = 10;
-    ctx.strokeStyle = lastAct === 1 ? col('--action-on')
-      : lastBand ? col('--reward-good')
-        : col('--border');
-    ctx.globalAlpha = 0.25; ctx.stroke(); ctx.globalAlpha = 1;
+    // The angle math: Maps MinT to MaxT from 135deg to 45deg (270deg sweep)
+    const ang = (t) => {
+      let pct = clamp01((t - cfg.minT) / (cfg.maxT - cfg.minT));
+      return (Number.isNaN(pct) ? 0 : pct) * 1.5 * Math.PI + 0.75 * Math.PI;
+    };
 
-    // ── track (270° arc)
-    ctx.beginPath(); ctx.arc(cx, cy, tr, ANG_START, ANG_START + ANG_SWEEP);
-    ctx.strokeStyle = col('--border'); ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.stroke();
+    const isHeating = State.actionHist[State.actionHist.length - 1] === 1;
+    const inBand = State.bandHist[State.bandHist.length - 1];
 
-    // ── reward band highlight
+    // Glow Ring
     ctx.beginPath();
-    ctx.arc(cx, cy, tr, ang(c.target - c.band), ang(c.target + c.band));
-    ctx.strokeStyle = col('--accent'); ctx.lineWidth = 6; ctx.globalAlpha = 0.45; ctx.stroke();
-    ctx.globalAlpha = 1;
+    ctx.arc(cx, cy, R, 0, 2 * Math.PI);
+    ctx.fillStyle = col('--card');
+    ctx.fill();
 
-    // ── target tick
-    const ta = ang(c.target);
+    ctx.lineWidth = 14;
+    ctx.strokeStyle = isHeating ? col('--action-on') : (inBand ? col('--reward-good') : col('--border'));
+    ctx.globalAlpha = 0.25;
+    ctx.stroke();
+    ctx.globalAlpha = 1.0;
+
+    // Track Background
+    const trackR = R - 20;
     ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(ta) * (tr - 12), cy + Math.sin(ta) * (tr - 12));
-    ctx.lineTo(cx + Math.cos(ta) * (tr + 12), cy + Math.sin(ta) * (tr + 12));
-    ctx.strokeStyle = col('--accent'); ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.stroke();
+    ctx.arc(cx, cy, trackR, ang(cfg.minT), ang(cfg.maxT));
+    ctx.strokeStyle = col('--border');
+    ctx.lineWidth = 8;
+    ctx.lineCap = 'round';
+    ctx.stroke();
 
-    // ── needle
-    const ca = ang(S.temp);
-    ctx.beginPath(); ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + Math.cos(ca) * nr, cy + Math.sin(ca) * nr);
-    ctx.strokeStyle = lastAct === 1 ? col('--action-on') : col('--text');
-    ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke();
+    // Target Band Highlight
+    ctx.beginPath();
+    ctx.arc(cx, cy, trackR, ang(cfg.target - cfg.band), ang(cfg.target + cfg.band));
+    ctx.strokeStyle = col('--accent');
+    ctx.globalAlpha = 0.5;
+    ctx.stroke();
+    ctx.globalAlpha = 1.0;
 
-    // ── pivot dot
-    ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 2 * Math.PI);
-    ctx.fillStyle = col('--text'); ctx.fill();
+    // Target Tick
+    const targetA = ang(cfg.target);
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(targetA) * (trackR - 10), cy + Math.sin(targetA) * (trackR - 10));
+    ctx.lineTo(cx + Math.cos(targetA) * (trackR + 10), cy + Math.sin(targetA) * (trackR + 10));
+    ctx.strokeStyle = col('--accent');
+    ctx.lineWidth = 4;
+    ctx.stroke();
 
-    // ── temp label
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    // Current Temp Needle
+    const currentA = ang(State.temp);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(currentA) * (trackR - 5), cy + Math.sin(currentA) * (trackR - 5));
+    ctx.strokeStyle = isHeating ? col('--action-on') : col('--text');
+    ctx.lineWidth = 6;
+    ctx.stroke();
+
+    // Pivot Dot
+    ctx.beginPath();
+    ctx.arc(cx, cy, 8, 0, 2 * Math.PI);
     ctx.fillStyle = col('--text');
-    ctx.font = `700 ${Math.round(R * 0.28)}px "Work Sans", sans-serif`;
-    ctx.fillText(S.temp.toFixed(1) + '°', cx, cy - R * 0.14);
+    ctx.fill();
 
-    // ── status text
-    ctx.fillStyle = lastAct === 1 ? col('--action-on') : col('--muted');
-    ctx.font = `600 ${Math.round(R * 0.11)}px "Work Sans", sans-serif`;
-    ctx.fillText(lastAct === 1 ? '🔥 HEATING' : 'IDLE', cx, cy + R * 0.14);
+    // Center Readout
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = col('--text');
+    ctx.font = `700 ${Math.floor(R * 0.35)}px "Work Sans", sans-serif`;
+    ctx.fillText(`${State.temp.toFixed(1)}°`, cx, cy - 20);
 
-    // ── min / max labels
-    ctx.fillStyle = col('--muted');
-    ctx.font = `500 ${Math.round(R * 0.09)}px "Work Sans", sans-serif`;
-    const lx = cx + Math.cos(ANG_START) * (R + 14);
-    const ly = cy + Math.sin(ANG_START) * (R + 14);
-    ctx.textAlign = 'right';
-    ctx.fillText(c.lo + '°', lx, ly);
-    const rx = cx + Math.cos(ANG_START + ANG_SWEEP) * (R + 14);
-    const ry = cy + Math.sin(ANG_START + ANG_SWEEP) * (R + 14);
-    ctx.textAlign = 'left';
-    ctx.fillText(c.hi + '°', rx, ry);
+    ctx.fillStyle = isHeating ? col('--action-on') : col('--muted');
+    ctx.font = `600 ${Math.floor(R * 0.12)}px "Work Sans", sans-serif`;
+    ctx.fillText(isHeating ? '🔥 HEATING' : 'IDLE', cx, cy + 30);
   }
 
-  /* ── Q-Table Heatmap ──────────────────────────────────── */
+  /* ── 2. The Q-Table Heatmap ───────────────────────────── */
   function drawHeatmap() {
-    const cv = ui.heatmap, ctx = cv.getContext('2d');
-    if (!ctx) return;
-    const { w, h } = canvasSize(cv);
+    const { w, h, ctx } = sizeCanvas(ui.heatmap);
+    if (!ctx || !State.qTable.length) return;
     ctx.clearRect(0, 0, w, h);
 
-    const q = S.qTable;
-    if (!q.length) return;
+    const padL = 40, padR = 20, padT = 20, padB = 25;
+    const bins = State.qTable.length;
+    const cellW = (w - padL - padR) / bins;
+    const cellH = (h - padT - padB) / 2;
 
-    const cs = getComputedStyle(document.documentElement);
-    const txt = cs.getPropertyValue('--text').trim();
-    const mut = cs.getPropertyValue('--muted').trim();
+    // Determine scale for coloring
+    let minQ = 0, maxQ = 0;
+    State.qTable.forEach(([q0, q1]) => {
+      minQ = Math.min(minQ, q0, q1);
+      maxQ = Math.max(maxQ, q0, q1);
+    });
+    if (maxQ - minQ === 0) maxQ += 0.001; // Avoid divide by zero
 
-    const LEFT = 32, TOP = 18, BOT = 22;
-    const bins = q.length;
-    const cw = (w - LEFT * 2) / bins;
-    const ch = (h - TOP - BOT) / 2;
-
-    let lo = 0, hi = 0;
-    q.forEach(([a, b]) => { lo = Math.min(lo, a, b); hi = Math.max(hi, a, b); });
-    if (hi - lo < 0.001) hi += 0.001;
-
-    const hue = (v) => {
-      const p = (v - lo) / (hi - lo);          // 0 → 1
-      return `hsl(${240 - 240 * p}, 75%, 55%)`;   // blue → red
+    const getHsl = (val) => {
+      const pct = (val - minQ) / (maxQ - minQ); // 0 to 1
+      // 240=Blue (Low), 0=Red (High)
+      const hue = 240 - Number(pct * 240);
+      return `hsl(${hue}, 80%, 55%)`;
     };
 
-    // row labels
-    ctx.font = '11px "Work Sans", sans-serif';
-    ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = txt;
-    ctx.fillText('Off', LEFT - 5, TOP + ch / 2);
-    ctx.fillText('On', LEFT - 5, TOP + ch * 1.5);
+    const cs = getComputedStyle(document.documentElement);
+    const textCol = cs.getPropertyValue('--text').trim();
+    const mutedCol = cs.getPropertyValue('--muted').trim();
 
-    // cells
+    // Row Labels
+    ctx.font = '12px "Work Sans", sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = textCol;
+    ctx.fillText('OFF', padL - 8, padT + cellH / 2);
+    ctx.fillText('ON', padL - 8, padT + cellH * 1.5);
+
+    // Draw Grid
     for (let i = 0; i < bins; i++) {
-      const x = LEFT + i * cw;
-      ctx.fillStyle = hue(q[i][0]); ctx.fillRect(x, TOP, cw, ch);
-      ctx.fillStyle = hue(q[i][1]); ctx.fillRect(x, TOP + ch, cw, ch);
-      ctx.strokeStyle = 'rgba(0,0,0,0.06)';
-      ctx.strokeRect(x, TOP, cw, ch);
-      ctx.strokeRect(x, TOP + ch, cw, ch);
+      const [q0, q1] = State.qTable[i];
+      const x = padL + (i * cellW);
+
+      // Off Row
+      ctx.fillStyle = getHsl(q0);
+      ctx.fillRect(x, padT, cellW, cellH);
+
+      // On Row
+      ctx.fillStyle = getHsl(q1);
+      ctx.fillRect(x, padT + cellH, cellW, cellH);
+
+      // Borders
+      ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, padT, cellW, cellH);
+      ctx.strokeRect(x, padT + cellH, cellW, cellH);
     }
 
-    // x-axis ticks
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = mut;
-    const c = S.cfg;
-    for (let i = 0; i <= 4; i++) {
-      const frac = i / 4;
-      const tx = LEFT + (w - LEFT * 2) * frac;
-      ctx.fillText((c.lo + (c.hi - c.lo) * frac).toFixed(0) + '°', tx, h - BOT + 4);
+    // X-Axis Labels
+    const cfg = State.cfg;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = mutedCol;
+    const ticks = 4; // Display 5 ticks total
+    for (let i = 0; i <= ticks; i++) {
+      const pct = i / ticks;
+      const x = padL + (w - padL - padR) * pct;
+      const t = cfg.minT + (cfg.maxT - cfg.minT) * pct;
+      ctx.fillText(`${t.toFixed(0)}°`, x, h - padB + 6);
     }
   }
 
-  /* ── Temperature History ──────────────────────────────── */
-  function drawHistory() {
-    const cv = ui.chart, ctx = cv.getContext('2d');
+  /* ── 3. The History Chart ─────────────────────────────── */
+  function drawChart() {
+    const { w, h, ctx } = sizeCanvas(ui.chart);
     if (!ctx) return;
-    const { w, h } = canvasSize(cv);
     ctx.clearRect(0, 0, w, h);
 
-    const c = S.cfg;
+    const cfg = State.cfg;
     const cs = getComputedStyle(document.documentElement);
-    const col = (n) => cs.getPropertyValue(n).trim();
+    const mutedCol = cs.getPropertyValue('--muted').trim();
+    const actionCol = cs.getPropertyValue('--action-on').trim();
+    const chartLine = cs.getPropertyValue('--chart-line').trim();
+    const accentCol = cs.getPropertyValue('--accent').trim();
+    const accentSoft = cs.getPropertyValue('--accent-soft').trim();
+    const gridCol = cs.getPropertyValue('--grid-line').trim();
 
-    const PAD = 42;
-    const yFor = (t) => {
-      const r = (t - c.lo) / (c.hi - c.lo);
-      return h - PAD - r * (h - PAD * 2);
+    const padL = 40, padR = 20, padY = 20;
+
+    // Y-mapping mapping temp between minT and maxT
+    const mapY = (t) => {
+      const clampT = clamp(t, cfg.minT, cfg.maxT);
+      const pct = (clampT - cfg.minT) / (cfg.maxT - cfg.minT);
+      return h - padY - pct * (h - padY * 2);
     };
 
-    // bg grid
-    ctx.strokeStyle = col('--grid-line'); ctx.lineWidth = 1;
-    for (let g = c.lo; g <= c.hi; g += 5) {
-      const gy = yFor(g);
-      ctx.beginPath(); ctx.moveTo(PAD, gy); ctx.lineTo(w - PAD, gy); ctx.stroke();
+    // Draw background grid lines (horizontal)
+    ctx.strokeStyle = gridCol;
+    ctx.lineWidth = 1;
+    for (let t = cfg.minT; t <= cfg.maxT; t += 10) {
+      const y = mapY(t);
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(w - padR, y);
+      ctx.stroke();
     }
 
-    // reward band
-    ctx.fillStyle = col('--accent-soft');
-    const bt = yFor(c.target + c.band), bb = yFor(c.target - c.band);
-    ctx.fillRect(PAD, bt, w - PAD * 2, bb - bt);
+    // Target Reward Band Box
+    const topY = mapY(cfg.target + cfg.band);
+    const botY = mapY(cfg.target - cfg.band);
+    ctx.fillStyle = accentSoft;
+    ctx.fillRect(padL, topY, w - padL - padR, Math.max(1, botY - topY));
 
-    // target line
-    const ty = yFor(c.target);
-    ctx.strokeStyle = col('--accent'); ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
-    ctx.beginPath(); ctx.moveTo(PAD, ty); ctx.lineTo(w - PAD, ty); ctx.stroke();
+    // Target Line Dash
+    const targetY = mapY(cfg.target);
+    ctx.beginPath();
+    ctx.moveTo(padL, targetY);
+    ctx.lineTo(w - padR, targetY);
+    ctx.strokeStyle = accentCol;
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 2;
+    ctx.stroke();
     ctx.setLineDash([]);
 
-    // temperature trace
-    const pts = S.hist;
-    if (pts.length < 2) { drawAxisLabels(); return; }
-    const sx = (w - PAD * 2) / (pts.length - 1);
+    // Line Chart
+    const pts = State.history;
+    if (pts.length < 2) {
+      drawAxis(ctx, cfg.minT, cfg.maxT, padL, padY, h, mutedCol);
+      return;
+    }
 
-    // colored segments (orange when heating, grey otherwise)
+    const stepX = (w - padL - padR) / (pts.length - 1);
+
+    // Draw thick segmented lines mapping action state to color
     for (let i = 1; i < pts.length; i++) {
-      const x0 = PAD + sx * (i - 1), x1 = PAD + sx * i;
-      const y0 = yFor(pts[i - 1]), y1 = yFor(pts[i]);
-      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
-      ctx.strokeStyle = S.actHist[i] === 1 ? col('--action-on') : col('--chart-line');
-      ctx.lineWidth = 2; ctx.stroke();
+      const x0 = padL + (i - 1) * stepX;
+      const x1 = padL + i * stepX;
+      const y0 = mapY(pts[i - 1]);
+      const y1 = mapY(pts[i]);
+
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+
+      // If we *just took* action 1 to reach this state, color it orange
+      ctx.strokeStyle = State.actionHist[i] === 1 ? actionCol : chartLine;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
     }
 
-    drawAxisLabels();
-
-    function drawAxisLabels() {
-      ctx.fillStyle = col('--text');
+    // Draw Y-axis labels
+    function drawAxis(ctx, minT, maxT, padL, padY, h, color) {
+      ctx.fillStyle = color;
       ctx.font = '11px "Work Sans", sans-serif';
-      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText(c.lo + '°F', 4, h - PAD + 6);
+      ctx.textAlign = 'right';
+
+      ctx.textBaseline = 'top';
+      ctx.fillText(`${maxT}°`, padL - 6, padY - 6);
+
       ctx.textBaseline = 'bottom';
-      ctx.fillText(c.hi + '°F', 4, PAD - 4);
+      ctx.fillText(`${minT}°`, padL - 6, h - padY + 6);
+    }
+    drawAxis(ctx, cfg.minT, cfg.maxT, padL, padY, h, mutedCol);
+  }
+
+  /* ── Simulation Control ───────────────────────────────── */
+  function initialize() {
+    State.cfg = readConfig();
+    State.qTable = buildQTable(State.cfg);
+    State.episode = 1;
+    State.step = 0;
+    State.temp = State.cfg.init;
+    State.history = [];
+    State.actionHist = [];
+    State.rewardHist = [];
+    State.bandHist = [];
+
+    ui.speedVal.textContent = State.cfg.speed;
+    ui.epsilonOut.textContent = State.cfg.eps.toFixed(3);
+
+    updateUI(0, 0, State.cfg.eps);
+    ui.actionOut.textContent = "—";
+    ui.rewardOut.textContent = "—";
+
+    renderCanvases();
+  }
+
+  function toggleRun() {
+    if (running) {
+      running = false;
+      clearInterval(intervalId);
+      ui.startBtn.textContent = '▶ Start Training';
+      ui.startBtn.className = 'primary';
+    } else {
+      running = true;
+      State.cfg = readConfig(); // Re-read in case inputs changed while paused
+      intervalId = setInterval(stepEnvironment, 1000 / State.cfg.speed);
+      ui.startBtn.textContent = '⏸ Pause';
+      ui.startBtn.className = 'secondary';
     }
   }
 
-  /* ── simulation control ───────────────────────────────── */
-  function reset() {
-    S.cfg = readCfg();
-    S.qTable = mkQ(S.cfg);
-    S.episode = 1; S.step = 0; S.temp = S.cfg.init;
-    S.hist = []; S.actHist = []; S.rewHist = []; S.bandHist = [];
-    ui.speedVal.textContent = S.cfg.speed;
-    ui.episodeOut.textContent = 1;
-    ui.stepOut.textContent = 0;
-    ui.actionOut.textContent = '—';
-    ui.rewardOut.textContent = '—';
-    ui.epsilonOut.textContent = S.cfg.eps.toFixed(3);
-    render();
-  }
-
-  function start() {
-    if (running) return;
-    S.cfg = readCfg();
-    running = true;
-    ui.startBtn.textContent = '⏸ Pause';
-    intervalId = setInterval(step, 1000 / S.cfg.speed);
-  }
-  function pause() {
-    running = false;
-    ui.startBtn.textContent = '▶ Start';
-    clearInterval(intervalId); intervalId = null;
-  }
-
-  /* ── event wiring ─────────────────────────────────────── */
-  ui.startBtn.addEventListener('click', () => running ? pause() : start());
-  ui.stepBtn.addEventListener('click', () => { if (!running) { S.cfg = S.cfg || readCfg(); step(); } });
-  ui.resetBtn.addEventListener('click', () => { pause(); reset(); });
+  /* ── Event Listeners ──────────────────────────────────── */
+  ui.startBtn.addEventListener('click', toggleRun);
+  ui.stepBtn.addEventListener('click', () => {
+    if (!running) {
+      State.cfg = readConfig();
+      stepEnvironment();
+    }
+  });
+  ui.resetBtn.addEventListener('click', () => {
+    if (running) toggleRun();
+    initialize();
+  });
 
   ui.speed.addEventListener('input', () => {
-    S.cfg.speed = Math.max(1, +ui.speed.value || 10);
-    ui.speedVal.textContent = S.cfg.speed;
-    if (running) { pause(); start(); }
+    if (State.cfg) {
+      State.cfg.speed = Math.max(1, parseInt(ui.speed.value, 10) || 10);
+      ui.speedVal.textContent = State.cfg.speed;
+      if (running) {
+        clearInterval(intervalId);
+        intervalId = setInterval(stepEnvironment, 1000 / State.cfg.speed);
+      }
+    }
   });
 
-  // Any visible control change → full reset
-  [ui.targetTemp, ui.initialTemp, ui.alpha, ui.gamma, ui.epsilon, ui.episodeLen].forEach((el) => {
-    if (el) el.addEventListener('change', () => { pause(); reset(); });
+  // Re-initialize if structure-changing inputs are modified while paused
+  const structuralInputs = [ui.minTemp, ui.maxTemp, ui.binSize, ui.initialTemp];
+  structuralInputs.forEach(el => {
+    if (el) el.addEventListener('change', () => {
+      if (running) toggleRun();
+      initialize();
+    });
   });
 
-  window.addEventListener('resize', render);
-  window.addEventListener('beforeunload', () => { clearInterval(intervalId); });
+  // Simple render tick for responsive resizing
+  window.addEventListener('resize', () => {
+    requestAnimationFrame(renderCanvases);
+  });
 
-  /* ── boot ─────────────────────────────────────────────── */
-  reset();
+  /* ── Boot ─────────────────────────────────────────────── */
+  initialize();
 })();
