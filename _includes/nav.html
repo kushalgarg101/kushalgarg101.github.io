@@ -1,15 +1,26 @@
 <nav class="site-nav">
   <div class="nav-left">
-    <a href="{{ '/' | relative_url }}" class="site-title">{{ site.title }}</a>
+    <a href="{{ '/' | relative_url }}" class="site-title">
+      <svg class="site-logo" viewBox="0 0 32 32" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <!-- Minimal Gargoyle Wings (representing math curves/waves) -->
+        <path d="M4 12 C9 6, 16 12, 16 12 C16 12, 23 6, 28 12 C21 17, 16 15, 16 15 C16 15, 11 17, 4 12 Z" fill="var(--accent)" opacity="0.12" stroke-width="1.5"></path>
+        <!-- Sleek Geometric Horns & Face -->
+        <path d="M10 10 L13 14 H19 L22 10 M12 14 L16 22 L20 14" stroke="var(--accent)" stroke-width="2"></path>
+        <!-- Glowing Neural/Physics Node in the center -->
+        <circle cx="16" cy="14" r="2" fill="currentColor"></circle>
+        <!-- Single clean mathematical orbit loop representing physics/science -->
+        <ellipse cx="16" cy="15" rx="11" ry="4" stroke="currentColor" stroke-width="1.2" transform="rotate(-30 16 15)" opacity="0.65"></ellipse>
+      </svg>
+      <span>Gargoyle</span>
+    </a>
   </div>
   <div class="nav-right">
-    <a href="{{ '/' | relative_url }}">Home</a>
-    <a href="{{ '/blog/' | relative_url }}">Blog</a>
     <a href="{{ '/about/' | relative_url }}">About</a>
     <a href="{{ '/thermostat-rl/' | relative_url }}">Thermostat RL</a>
     <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle theme" aria-pressed="false">
       <span class="theme-toggle__icon theme-toggle__sun" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="4"></circle>
           <line x1="12" y1="2" x2="12" y2="5"></line>
           <line x1="12" y1="19" x2="12" y2="22"></line>
@@ -25,7 +36,8 @@
         <span class="theme-toggle__knob"></span>
       </span>
       <span class="theme-toggle__icon theme-toggle__moon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"
+          stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 14.5A9 9 0 1 1 9.5 3a7 7 0 0 0 11.5 11.5z"></path>
         </svg>
       </span>
