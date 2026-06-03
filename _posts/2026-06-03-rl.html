@@ -1,0 +1,1092 @@
+---
+layout: post
+title: "Mastering Laat: Training a Reinforcement Learning Agent for a Traditional Card Game"
+date: 2026-06-03
+summary: "An in-depth exploration of training reinforcement learning agents for Laat using behavior cloning, Maskable
+PPO, and league training; from game design to evaluation."
+tags: [Reinforcement Learning, Deep Learning, Card Games]
+---
+
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+<section id="laat-rl-agent-post">
+    <div class="game-ui-container">
+        <img src="{{ '/assets/images/game_ui.png' | relative_url }}" alt="Laat Game UI">
+    </div>
+
+    <p class="intro">
+        I have always been fascinated by the idea of making computers perform tasks that typically require human
+        intelligence. This fascination led me to explore the world of Artificial Intelligence and, specifically,
+        Reinforcement Learning. To apply these concepts to a real-world scenario, I embarked on a journey to
+        train an RL agent for a traditional and strategic card game known as Laat.
+    </p>
+
+    <nav class="toc" aria-label="Table of Contents">
+        <div class="toc-title">Contents</div>
+        <ol class="toc-list">
+            <li><a href="#overview">Project Overview</a></li>
+            <li><a href="#game">Understanding the Game of Laat</a></li>
+            <li>
+                <a href="#architecture">1. Architecture and Implementation</a>
+                <ol>
+                    <li><a href="#action-masking">1.1 Action Masking Formulation</a></li>
+                    <li><a href="#card-representation">1.2 Representation of Cards</a></li>
+                </ol>
+            </li>
+            <li>
+                <a href="#policy">2. Policy Architectures</a>
+                <ol>
+                    <li><a href="#bc-arch">2.1 Behavior Cloning Architecture</a></li>
+                    <li><a href="#ppo-arch">2.2 Maskable PPO Actor-Critic Architecture</a></li>
+                    <li><a href="#weight-transfer">2.3 Weight Transfer (BC → PPO)</a></li>
+                </ol>
+            </li>
+            <li>
+                <a href="#observation">3. Observation Space Specification</a>
+                <ol>
+                    <li><a href="#obs-features">3.1 Mapping of the 414 Features</a></li>
+                    <li><a href="#perspective">3.2 Perspective Rotation Mechanics</a></li>
+                </ol>
+            </li>
+            <li><a href="#exec-loop">4. The RL Execution Loop</a></li>
+            <li>
+                <a href="#training">5. Training the Agents</a>
+                <ol>
+                    <li><a href="#pipeline">5.1 Training Pipeline</a></li>
+                    <li><a href="#reward">5.2 Reward Function Calibration</a></li>
+                    <li><a href="#models">5.3 Model Analyses</a></li>
+                </ol>
+            </li>
+            <li>
+                <a href="#conclusion">6. Conclusion</a>
+                <ol>
+                    <li><a href="#conclusion-eval-methods">6.1 Strategy Evaluation Methodologies</a></li>
+                    <li><a href="#conclusion-insights">6.2 Some key insights</a></li>
+                </ol>
+            </li>
+        </ol>
+    </nav>
+
+    <h2 id="overview">Project Overview</h2>
+    <p>
+        At its core, this project explores applied RL for training agents to master Laat game.
+        The system integrates a game simulator designed specifically for reinforcement learning,
+        a Gymnasium environment that enforces strict legal-action masking. The training architecture supports
+        maskable Proximal Policy Optimization, behavior cloning derived from synthetic teacher data, and continuous
+        fine-tuning from those
+        behavior-cloned weights. Agents are trained against dynamic league opponents featuring multiple bot
+        styles and are evaluated comprehensively beyond simple win rates. Over the course of development,
+        multiple models were produced. Model Three currently serves as most robust reference, while Model
+        Two provides the strongest discipline regarding high-card strategies. Model Four acts as an experimental
+        checkpoint focused on maximizing win rates through synthetic data.
+    </p>
+
+    <h2 id="game">Understanding the Game of Laat</h2>
+    <p>
+        Laat is played with a standard fifty-two card deck comprising four suits and thirteen ranks per suit,
+        completely excluding jokers. In this game, Aces hold the highest value. The fundamental objective is to
+        avoid being left with the most cards. A proficient player strives to quickly empty their hand while
+        simultaneously forcing opponents to accumulate cards.
+    </p>
+    <p>
+        The turn structure is intuitive yet deeply strategic. After the deck is shuffled and dealt, the player
+        holding the starting card, typically the Ace of Spades, begins the game. Each subsequent sub-round
+        functions similarly to a trick. A player leads a card, establishing a lead suit that other players must
+        follow if possible. If a player cannot follow the lead suit, they are compelled to play any legal card,
+        an action formally known as giving laat. When this occurs, the player holding the current highest card
+        in the lead suit collects the entire trick, including the laat card, and subsequently starts the next
+        sub-round. Conversely, if everyone follows the lead suit cleanly, the highest card merely wins the
+        trick, and those cards are moved safely to the discard pile.
+    </p>
+    <p>
+        The true strategic tension in Laat lies in the delicate balance of applied pressure and hidden
+        information. Collecting cards is highly detrimental, whereas emptying the hand is the ultimate goal.
+        Leading a suit that an opponent lacks forces them to give laat, often resulting in the current highest
+        card holder being penalized with the trick. Consequently, players frequently choose to give high cards
+        as laat to eliminate dangerous assets from their hands, while preserving lower cards to guarantee safer
+        choices in future rounds. Furthermore, giving laat provides public knowledge that the player lacks the
+        lead suit. Because the game involves hidden hands, the reinforcement learning agent must navigate these
+        decisions based solely on public information and its own cards.
+    </p>
+
+    <div class="diagram-container">
+        <div class="diagram-title">Example: Resolving a Laat Trick</div>
+        <p style="font-size: 0.9em; text-align: center; margin-bottom: 10px;">Lead suit is Spades (♠). Player 3
+            cannot follow suit and strategically plays a high Diamond (♦) as Laat.</p>
+        <div class="trick-example">
+            <div>
+                <div class="card spade">A♠</div>
+                <div class="card-label">Player 1 (Lead)</div>
+            </div>
+            <div>
+                <div class="card spade">5♠</div>
+                <div class="card-label">Player 2</div>
+            </div>
+            <div>
+                <div class="card diamond laat">K♦</div>
+                <div class="card-label">Player 3 (Laat)</div>
+            </div>
+            <div>
+                <div class="card spade">9♠</div>
+                <div class="card-label">Player 4</div>
+            </div>
+        </div>
+        <p style="font-size: 0.9em; text-align: center; margin-top: 15px; margin-bottom: 0;">
+            <strong>Result:</strong> Player 1 holds the highest card in the lead suit (A♠) and must collect the
+            entire trick, inheriting Player 3's K♦.
+        </p>
+    </div>
+
+    <h2 id="architecture"><span class="header-num">1</span> Architecture and Implementation</h2>
+    <p>
+        The game is modeled as a <strong>Partially Observable Markov Decision Process (POMDP)</strong>,
+        which we simplify into a <strong>Masked MDP</strong> during training by encoding the observable history
+        and using legal action masks.
+    </p>
+    <p>
+        A standard POMDP is defined by the tuple
+        \( \langle \mathcal{S}, \mathcal{A}, \mathcal{T}, \mathcal{R},
+        \Omega, \mathcal{O}, \gamma \rangle \):
+    </p>
+
+    <ul>
+        <li>\( \mathcal{S} \) is the set of complete hidden states.</li>
+        <li>\( \mathcal{A} = \{0,1,\dots,51\} \) is the action space.</li>
+        <li>\( \mathcal{T}(s' \mid s, a) \) is the transition function.</li>
+        <li>\( \mathcal{R}(s,a) \) is the reward function.</li>
+        <li>\( \Omega \) is the observation space.</li>
+        <li>\( \mathcal{O}(o \mid s', a) \) is the observation function.</li>
+        <li>\( \gamma \in [0,1) \) is the discount factor.</li>
+    </ul>
+
+    <h3 id="action-masking"><span class="header-num">1.1</span> Action Masking Formulation</h3>
+    <p>
+        In standard RL, the policy \( \pi(a \mid o) \) generates a probability
+        distribution over the entire discrete action space \( \mathcal{A} \).
+        In Laat, most actions are illegal in any given turn due to the strict
+        game rules (e.g., following the lead suit). To prevent the policy from
+        wasting exploration on illegal moves, we apply
+        <strong>Legal Action Masking</strong>.
+    </p>
+    <p>
+        Let \( \mathcal{M}(s) \in \{0,1\}^{|\mathcal{A}|} \) be the legal action
+        mask vector for a state \( s \), defined for each card id
+        \( a \in \mathcal{A} \) as:
+    </p>
+
+    <div class="equation">
+        \[
+        \mathcal{M}_a(s)=
+        \begin{cases}
+        1 & \text{if card } a \text{ is a legal move} \\
+        0 & \text{otherwise}
+        \end{cases}
+        \]
+    </div>
+
+    <p>
+        Let \( f_\theta(o) \in \mathbb{R}^{|\mathcal{A}|} \) be the raw output
+        logits of the policy neural network parameterised by \( \theta \)
+        given observation \( o \). The masked logits
+        \( \tilde{f}_\theta(o) \) are computed by setting the logits of
+        illegal actions to a large negative number:
+    </p>
+
+    <div class="equation">
+        \[
+        \tilde{f}_\theta(o)_a=
+        \begin{cases}
+        f_\theta(o)_a & \text{if } \mathcal{M}_a(s)=1 \\
+        -10^9 & \text{if } \mathcal{M}_a(s)=0
+        \end{cases}
+        \]
+    </div>
+
+    <p>
+        The action probability distribution
+        \( \pi_\theta(a \mid o) \) is then computed using the masked softmax:
+    </p>
+
+    <div class="equation">
+        \[
+        \pi_\theta(a \mid o)
+        =
+        \text{softmax}(\tilde{f}_\theta(o))_a
+        =
+        \frac{
+        \exp\left(\tilde{f}_\theta(o)_a\right)
+        }{
+        \sum_{b \in \mathcal{A}}
+        \exp\left(\tilde{f}_\theta(o)_b\right)
+        }
+        \]
+    </div>
+
+    <p>
+        For any illegal action \( a \) where
+        \( \mathcal{M}_a(s)=0 \):
+    </p>
+
+    <div class="equation">
+        \[
+        \pi_\theta(a \mid o) \approx 0
+        \]
+    </div>
+
+    <p>
+        This formulation guarantees that the agent only samples legal actions,
+        allowing the neural network to focus all learning capacity on
+        strategically optimizing among legal moves.
+    </p>
+
+    <h3 id="card-representation"><span class="header-num">1.2</span> Representation of Cards</h3>
+    <p>
+        Each of the 52 cards is indexed by a unique integer
+        \( a \in \{0, \dots, 51\} \).
+        The suit \( S(a) \) and rank \( R(a) \) of a card \( a \)
+        are determined by the formulas:
+    </p>
+
+    <div class="equation">
+        \[
+        S(a) = \lfloor a / 13 \rfloor
+        \in \{0, 1, 2, 3\}
+        \quad
+        \text{(Spades, Hearts, Diamonds, Clubs)}
+        \]
+    </div>
+
+    <div class="equation">
+        \[
+        R(a) = a \bmod 13
+        \in \{0, \dots, 12\}
+        \quad
+        \text{(2, 3, 4, 5, 6, 7, 8, 9, 10, Jack, Queen, King, Ace)}
+        \]
+    </div>
+
+    <h2 id="policy"><span class="header-num">2</span> Policy Architectures</h2>
+    <p>
+        In card games, players take turns sequentially. However, RL models expect a standard input-output loop:
+        <em>observe state</em> &rarr; <em>choose action</em> &rarr; <em>get reward</em>.
+    </p>
+    <p>
+        To handle this, the environment uses an asynchronous execution loop:
+    </p>
+
+    <ul>
+        <li>
+            <strong>Fast-Forwarding:</strong>
+            When a game starts, the engine shuffles and deals cards. If the game starts with Player 2's turn,
+            the environment runs Player 2's and Player 3's turns automatically behind the scenes using their
+            respective bot behaviors.
+        </li>
+        <li>
+            <strong>The "Step":</strong>
+            The moment it becomes Player 0's turn (the RL agent), the game pauses. The agent is shown the
+            observation (its hand, what's on the table, etc.) and it chooses a card to play.
+        </li>
+        <li>
+            <strong>Opponent Simulation:</strong>
+            Once Player 0 plays a card, the game resumes, running all subsequent opponent turns and resolving
+            tricks/rounds until it is Player 0's turn again (or the game ends).
+        </li>
+    </ul>
+
+    <p>
+        So, to the RL agent, the game feels like a single-player game where it plays a card, the world instantly
+        updates, and it's its turn again.
+    </p>
+    <p>
+        Across the training stages, two main neural network architectures are employed:
+        a <strong>Behavior Cloning (BC) Classifier</strong> and a
+        <strong>Proximal Policy Optimization (PPO) Actor-Critic Network</strong>.
+    </p>
+
+    <h3 id="bc-arch"><span class="header-num">2.1</span> Behavior Cloning (BC) Architecture</h3>
+    <p>
+        The BC network is a multi-layer perceptron (MLP) mapping the
+        414-dimensional observation vector to 52 action logits:
+    </p>
+
+    <figure>
+        <img src="{{ '/assets/images/bc_clone.png' | relative_url }}" class="BC-architecture" alt="BC Architecture">
+        <figcaption> Behavior Cloning Architecture </figcaption>
+    </figure>
+
+    <p>
+        The mathematical formulation for the BC forward pass is:
+    </p>
+
+    <div class="equation">
+        \[
+        \mathbf{h}_1 = \tanh(\mathbf{W}_1 \mathbf{o} + \mathbf{b}_1)
+        \]
+    </div>
+
+    <div class="equation">
+        \[
+        \mathbf{h}_2 = \tanh(\mathbf{W}_2 \mathbf{h}_1 + \mathbf{b}_2)
+        \]
+    </div>
+
+    <div class="equation">
+        \[
+        \mathbf{z} = \mathbf{W}_3 \mathbf{h}_2 + \mathbf{b}_3
+        \]
+    </div>
+
+    <p>
+        where
+        \( \mathbf{o} \in \mathbb{R}^{414} \),
+        \( \mathbf{W}_1 \in \mathbb{R}^{256 \times 414} \),
+        \( \mathbf{b}_1 \in \mathbb{R}^{256} \),
+        \( \mathbf{W}_2 \in \mathbb{R}^{256 \times 256} \),
+        \( \mathbf{b}_2 \in \mathbb{R}^{256} \),
+        \( \mathbf{W}_3 \in \mathbb{R}^{52 \times 256} \),
+        and
+        \( \mathbf{b}_3 \in \mathbb{R}^{52} \).
+    </p>
+
+    <h3 id="ppo-arch"><span class="header-num">2.2</span> Maskable PPO Actor-Critic Architecture</h3>
+    <p>
+        The reinforcement learning agent uses a dual-headed MLP actor-critic architecture.
+        The policy head (Actor) outputs a probability distribution over actions, and the
+        value head (Critic) outputs a scalar state-value estimate:
+    </p>
+
+    <figure>
+        <img src="{{ '/assets/images/ppo.png' | relative_url }}" alt="PPO Architecture">
+        <figcaption> Proximal Policy Optimization Architecture </figcaption>
+    </figure>
+
+    <p>
+        In the standard <code>MlpPolicy</code> configuration for
+        <code>sb3-contrib</code>, the actor and critic networks have completely
+        independent feature extractors. This allows each head to extract features
+        tailored to its specific task: the Actor learns action probability mapping
+        (policy), while the Critic learns state quality evaluation (value).
+    </p>
+
+    <h3>Formulation</h3>
+    <p><strong>Actor:</strong></p>
+
+    <div class="equation">
+        \[
+        \mathbf{h}_1^{\text{act}} =
+        \tanh(\mathbf{W}_1^{\text{act}}\mathbf{o} +
+        \mathbf{b}_1^{\text{act}})
+        \]
+    </div>
+
+    <div class="equation">
+        \[
+        \mathbf{h}_2^{\text{act}} =
+        \tanh(\mathbf{W}_2^{\text{act}}\mathbf{h}_1^{\text{act}} +
+        \mathbf{b}_2^{\text{act}})
+        \]
+    </div>
+
+    <div class="equation">
+        \[
+        \mathbf{z}^{\text{act}} =
+        \mathbf{W}_3^{\text{act}}\mathbf{h}_2^{\text{act}} +
+        \mathbf{b}_3^{\text{act}}
+        \]
+    </div>
+
+    <p><strong>Where:</strong></p>
+    <ul>
+        <li>
+            \(\mathbf{o} \in \mathbb{R}^{414}\) is the input observation vector.
+        </li>
+        <li>
+            \(\mathbf{W}_1^{\text{act}} \in \mathbb{R}^{256 \times 414}\) and
+            \(\mathbf{b}_1^{\text{act}} \in \mathbb{R}^{256}\).
+        </li>
+        <li>
+            \(\mathbf{W}_2^{\text{act}} \in \mathbb{R}^{256 \times 256}\) and
+            \(\mathbf{b}_2^{\text{act}} \in \mathbb{R}^{256}\).
+        </li>
+        <li>
+            \(\mathbf{W}_3^{\text{act}} \in \mathbb{R}^{52 \times 256}\) and
+            \(\mathbf{b}_3^{\text{act}} \in \mathbb{R}^{52}\), producing raw logits
+            for the 52 possible card choices, which are masked during inference.
+        </li>
+    </ul>
+
+    <p><strong>Critic:</strong></p>
+
+    <div class="equation">
+        \[
+        \mathbf{h}_1^{\text{crit}} =
+        \tanh(\mathbf{W}_1^{\text{crit}}\mathbf{o} +
+        \mathbf{b}_1^{\text{crit}})
+        \]
+    </div>
+
+    <div class="equation">
+        \[
+        \mathbf{h}_2^{\text{crit}} =
+        \tanh(\mathbf{W}_2^{\text{crit}}\mathbf{h}_1^{\text{crit}} +
+        \mathbf{b}_2^{\text{crit}})
+        \]
+    </div>
+
+    <div class="equation">
+        \[
+        V(\mathbf{o}) =
+        \mathbf{W}_3^{\text{crit}}\mathbf{h}_2^{\text{crit}} +
+        b_3^{\text{crit}}
+        \]
+    </div>
+
+    <p><strong>Where:</strong></p>
+    <ul>
+        <li>
+            \(\mathbf{W}_1^{\text{crit}} \in \mathbb{R}^{256 \times 414}\) and
+            \(\mathbf{b}_1^{\text{crit}} \in \mathbb{R}^{256}\).
+        </li>
+        <li>
+            \(\mathbf{W}_2^{\text{crit}} \in \mathbb{R}^{256 \times 256}\) and
+            \(\mathbf{b}_2^{\text{crit}} \in \mathbb{R}^{256}\).
+        </li>
+        <li>
+            \(\mathbf{W}_3^{\text{crit}} \in \mathbb{R}^{1 \times 256}\) and
+            \(b_3^{\text{crit}} \in \mathbb{R}\), producing a single scalar value
+            representing the expected future reward from the current state.
+        </li>
+    </ul>
+
+    <h3 id="weight-transfer"><span class="header-num">2.3</span> Weight Transfer (BC to PPO Initialization)</h3>
+    <p>
+        To kickstart PPO training, the pretrained weights from a successfully converged
+        BC model are copied into the PPO model:
+    </p>
+
+    <ol>
+        <li>
+            Actor weights
+            (\( \mathbf{W}_1^{\text{act}} \),
+            \( \mathbf{b}_1^{\text{act}} \),
+            \( \mathbf{W}_2^{\text{act}} \),
+            \( \mathbf{b}_2^{\text{act}} \))
+            are initialized from BC weights
+            (\( \mathbf{W}_1 \),
+            \( \mathbf{b}_1 \),
+            \( \mathbf{W}_2 \),
+            \( \mathbf{b}_2 \)).
+        </li>
+        <li>
+            Critic weights
+            (\( \mathbf{W}_1^{\text{crit}} \),
+            \( \mathbf{b}_1^{\text{crit}} \),
+            \( \mathbf{W}_2^{\text{crit}} \),
+            \( \mathbf{b}_2^{\text{crit}} \))
+            are also initialized from BC weights
+            (\( \mathbf{W}_1 \),
+            \( \mathbf{b}_1 \),
+            \( \mathbf{W}_2 \),
+            \( \mathbf{b}_2 \))
+            to provide the value network with immediate high-quality feature extraction.
+        </li>
+        <li>
+            The PPO action head
+            (\( \mathbf{W}_3^{\text{act}} \),
+            \( \mathbf{b}_3^{\text{act}} \))
+            is initialized from the BC action head
+            (\( \mathbf{W}_3 \),
+            \( \mathbf{b}_3 \)).
+        </li>
+        <li>
+            The PPO scalar value head
+            (\( \mathbf{W}_3^{\text{crit}} \),
+            \( b_3^{\text{crit}} \))
+            is initialized randomly.
+        </li>
+    </ol>
+
+    <h2 id="observation"><span class="header-num">3</span> Observation Space Specification</h2>
+    <p>
+        The observation vector has a fixed length of <strong>414 features</strong>,
+        encoded as a flat normalized <code>float32</code> array. It contains both
+        private information (the agent's hand) and publicly observable game-state
+        information such as played cards, suit failures, player turn information,
+        and game progress indicators.
+    </p>
+
+    <figure>
+        <img src="{{ '/assets/images/input.png' | relative_url }}" alt="Observation Vector Breakdown">
+        <figcaption>Observation Vector Breakdown</figcaption>
+    </figure>
+
+    <h3 id="obs-features"><span class="header-num">3.1</span> Mapping of the 414 Features</h3>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Start Index</th>
+                    <th>End Index</th>
+                    <th>Count</th>
+                    <th>Description / Values</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>0</td>
+                    <td>51</td>
+                    <td>52</td>
+                    <td>
+                        <strong>Agent's Private Hand</strong>: Binary value
+                        <code>1.0</code> if card <em>a</em> is present in the agent's hand,
+                        otherwise <code>0.0</code>.
+                    </td>
+                </tr>
+                <tr>
+                    <td>52</td>
+                    <td>363</td>
+                    <td>312</td>
+                    <td>
+                        <strong>Current Trick Ownership</strong>: Flat layout of
+                        6 players × 52 cards. Value is <code>1.0</code> if relative player
+                        <em>p</em> played card <em>c</em> in the current trick,
+                        otherwise <code>0.0</code>.
+                    </td>
+                </tr>
+                <tr>
+                    <td>364</td>
+                    <td>369</td>
+                    <td>6</td>
+                    <td>
+                        <strong>Player Hand Counts</strong>:
+                        <code>hand_length / 52.0</code> for relative players 0–5.
+                    </td>
+                </tr>
+                <tr>
+                    <td>370</td>
+                    <td>393</td>
+                    <td>24</td>
+                    <td>
+                        <strong>Public Suit Failures</strong>: Flat layout of
+                        6 players × 4 suits. Value is <code>1.0</code> if relative player
+                        <em>p</em> has publicly failed to follow suit <em>s</em> in a
+                        previous trick, otherwise <code>0.0</code>.
+                    </td>
+                </tr>
+                <tr>
+                    <td>394</td>
+                    <td>399</td>
+                    <td>6</td>
+                    <td>
+                        <strong>Current Player One-Hot</strong>:
+                        Value is <code>1.0</code> at the index corresponding to the player
+                        whose turn it is, otherwise <code>0.0</code>.
+                    </td>
+                </tr>
+                <tr>
+                    <td>400</td>
+                    <td>404</td>
+                    <td>5</td>
+                    <td>
+                        <strong>Lead Suit One-Hot</strong>:
+                        Indices 0–3 correspond to Spades, Hearts, Diamonds, and Clubs.
+                        Index 4 is set to <code>1.0</code> when no lead suit exists
+                        (open sub-round).
+                    </td>
+                </tr>
+                <tr>
+                    <td>405</td>
+                    <td>410</td>
+                    <td>6</td>
+                    <td>
+                        <strong>Current Highest Player One-Hot</strong>:
+                        Value is <code>1.0</code> for the player currently holding the
+                        winning card in the lead suit, otherwise <code>0.0</code>.
+                    </td>
+                </tr>
+                <tr>
+                    <td>411</td>
+                    <td>411</td>
+                    <td>1</td>
+                    <td>
+                        <strong>Normalized Round</strong>:
+                        <code>min(state.round / max_rounds, 1.0)</code>
+                    </td>
+                </tr>
+                <tr>
+                    <td>412</td>
+                    <td>412</td>
+                    <td>1</td>
+                    <td>
+                        <strong>Normalized Game Actions</strong>:
+                        <code>min(state.turn / max_actions_per_game, 1.0)</code>
+                    </td>
+                </tr>
+                <tr>
+                    <td>413</td>
+                    <td>413</td>
+                    <td>1</td>
+                    <td>
+                        <strong>Normalized Discard Pile Count</strong>:
+                        <code>len(state.round_discard) / 52.0</code>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h3 id="perspective"><span class="header-num">3.2</span> Perspective Rotation Mechanics</h3>
+    <p>
+        During learning, the agent is always assigned as Player 0. To evaluate checkpoints or run league training
+        effectively from any seating position, we rotate the observation vector relative to the acting player.
+        Let <em>p<sub>perspective</sub></em> be the absolute index of the player for whom the observation is
+        being encoded, and <em>p<sub>absolute</sub></em> be the absolute index of any player in the game.
+        In a game with <em>K</em> active players, the relative player index <em>p<sub>relative</sub></em> is calculated
+        as:
+    </p>
+
+    <div class="equation">
+        \[
+        p_{\text{relative}} = (p_{\text{absolute}} - p_{\text{perspective}}) \bmod K
+        \]
+    </div>
+
+    <p>
+        For index values where <code>p<sub>relative</sub> &ge; K</code>, features in the observation array
+        default to <code>0.0</code> (as the maximum player capacity is 6, but games usually contain 4 players).
+        This rotation mapping is recursively applied to the following observation components:
+    </p>
+
+    <ol>
+        <li><strong>Current Trick Ownership</strong>: Stored relative to <em>p<sub>perspective</sub></em>.</li>
+        <li>
+            <strong>Player Hand Counts</strong>: Reordered such that:
+            <ul>
+                <li>Index <code>0</code> = <code>len(hand[p<sub>perspective</sub>]) / 52.0</code></li>
+                <li>Index <code>1</code> = Player <code>(p<sub>perspective</sub> + 1) mod K</code></li>
+                <li>Subsequent indices follow in clockwise player order relative to <em>p<sub>perspective</sub></em>.
+                </li>
+            </ul>
+        </li>
+        <li><strong>Public Suit Failures</strong>: Reordered using relative player indices.</li>
+        <li><strong>Current Player One-Hot</strong>: Rotated according to <em>p<sub>relative</sub></em>.</li>
+        <li><strong>Highest Player One-Hot</strong>: Rotated according to the relative index of the current winning
+            player.</li>
+    </ol>
+
+    <h2 id="exec-loop"><span class="header-num">4</span> The Reinforcement Learning Execution Loop</h2>
+    <p>
+        The training pipeline operates on a sequential execution loop inside the
+        Gymnasium wrapper <code>LaatCardEnv</code>. Because only one player
+        (<strong>Player 0</strong>) is the training agent, the environment handles
+        all opponent bot actions internally.
+    </p>
+
+    <div class="flow-diagram">
+        <div class="flow-step">
+            <div class="step-number">1</div>
+            <div class="step-content">
+                <h4>Environment Reset</h4>
+                <p><code>PPO Agent → LaatCardEnv.reset(seed)</code></p>
+                <p><code>LaatCardEnv → engine.create_game(config)</code></p>
+                <p>
+                    Cards are shuffled and dealt. The player holding the starting card
+                    becomes the active player.
+                </p>
+            </div>
+        </div>
+
+        <div class="arrow">↓</div>
+
+        <div class="flow-step">
+            <div class="step-number">2</div>
+            <div class="step-content">
+                <h4>Advance Until Agent Turn</h4>
+                <p>
+                    The environment repeatedly queries opponent bots and applies their
+                    moves internally:
+                </p>
+                <ul>
+                    <li><code>opponents.choose_action(state)</code></li>
+                    <li><code>engine.apply_move(state, card_id)</code></li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="arrow">↓</div>
+
+        <div class="flow-step">
+            <div class="step-number">3</div>
+            <div class="step-content">
+                <h4>Observation Returned</h4>
+                <p>The environment returns:</p>
+                <ul>
+                    <li>Observation vector (<code>414</code>)</li>
+                    <li>Action mask (<code>52</code>)</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="arrow">↓</div>
+
+        <div class="flow-step">
+            <div class="step-number">4</div>
+            <div class="step-content">
+                <h4>Agent Action</h4>
+                <p>PPO selects a legal card and calls:</p>
+                <p><code>step(action)</code></p>
+                <p>
+                    The action is immediately applied to the game state through
+                    <code>engine.apply_move()</code>.
+                </p>
+            </div>
+        </div>
+
+        <div class="arrow">↓</div>
+
+        <div class="flow-step">
+            <div class="step-number">5</div>
+            <div class="step-content">
+                <h4>Opponent Resolution</h4>
+                <p>The environment automatically executes all intermediate opponent turns.</p>
+                <p>This continues until either:</p>
+                <ul>
+                    <li>Player 0 acts again, or</li>
+                    <li>The game ends.</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="arrow">↓</div>
+
+        <div class="flow-step">
+            <div class="step-number">6</div>
+            <div class="step-content">
+                <h4>Reward Calculation</h4>
+                <p>Reward <code>R<sub>t</sub></code> is computed from:</p>
+                <ul>
+                    <li>Intermediate shaping rewards</li>
+                    <li>Trick outcomes</li>
+                    <li>Terminal game outcomes</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="arrow">↓</div>
+
+        <div class="flow-step">
+            <div class="step-number">7</div>
+            <div class="step-content">
+                <h4>Transition Returned</h4>
+                <p>The environment returns:</p>
+                <pre>observation, reward, terminated, truncated, info</pre>
+                <p>PPO stores the transition and proceeds to the next step.</p>
+            </div>
+        </div>
+    </div>
+
+    <h2 id="training"><span class="header-num">5</span> Training the Agents</h2>
+
+    <h3 id="pipeline"><span class="header-num">5.1</span> Training Pipeline</h3>
+    <p>
+        The training pipeline for the Laat agent follows a structured multi-stage progression designed to
+        transition the model from synthetic mimicry to strategic reinforcement learning:
+    </p>
+
+    <div class="diagram-container">
+        <div class="diagram-title">Agent Training Pipeline</div>
+        <div class="pipeline">
+            <div class="pipeline-step" style="background-color: #9b59b6;">
+                1. Synthetic Data Generation
+                <div style="font-size: 0.8em; margin-top: 5px;">From heuristic & teachers</div>
+            </div>
+            <div class="pipeline-arrow">➔</div>
+            <div class="pipeline-step" style="background-color: #3498db;">
+                2. Behavior Cloning (BC)
+                <div style="font-size: 0.8em; margin-top: 5px;">Masked Cross-Entropy Loss</div>
+            </div>
+            <div class="pipeline-arrow">➔</div>
+            <div class="pipeline-step" style="background-color: #e67e22;">
+                3. Proximal Policy Optimization (PPO)
+                <div style="font-size: 0.8em; margin-top: 5px;">League Training & Fine-Tuning</div>
+            </div>
+        </div>
+    </div>
+
+    <p>
+        First, the agent undergoes <strong>Behavior Cloning (BC)</strong> by training on a dataset of synthetic
+        game decisions. The BC network is supervised using a masked cross-entropy loss to predict the exact
+        actions taken by heuristic or checkpoint teacher models. After the BC classifier converges, its policy
+        weights are transferred to the actor-critic layers of a <strong>Maskable PPO</strong> model. This
+        initialization serves as a warm start, allowing the reinforcement learning phase to begin with a policy
+        that already understands the rules of the game and can execute basic strategies.
+    </p>
+
+    <h3 id="reward"><span class="header-num">5.2</span> Reward Function Calibration</h3>
+    <p>
+        The environment's reward function is carefully structured to shape strategic decisions while
+        prioritizing the ultimate objective of winning the game (ending with the absolute fewest cards). The
+        step reward \( \mathcal{R}_t \) is calculated dynamically at each step and depends directly on game
+        state transitions:
+    </p>
+
+    <div class="equation">
+        \[
+        \mathcal{R}_t = \mathcal{R}_{\Delta H} + \mathcal{R}_{\text{laat}} + \mathcal{R}_{\text{terminal}}
+        \]
+    </div>
+
+    <p>
+        The individual components of this reward function are mathematically calibrated as follows:
+    </p>
+
+    <ul>
+        <li>
+            <strong>Hand Deltas (\( \mathcal{R}_{\Delta H} \)):</strong> Encourages card reduction. Let \( H_t
+            \) be the agent's hand size at step \( t \), and let \( \Delta H_t = H_{t} - H_{t+1} \) be the
+            change in hand size:
+            <div class="equation">
+                \[
+                \mathcal{R}_{\Delta H} = \begin{cases}
+                0.01 \cdot \Delta H_t & \text{if } \Delta H_t > 0 \quad \text{(Agent discarded cards)} \\
+                0.02 \cdot \Delta H_t & \text{if } \Delta H_t < 0 \quad \text{(Agent collected cards)} \\ 0.0 &
+                    \text{otherwise} \end{cases} \] </div>
+        </li>
+        <li>
+            <strong>Laat Collection (\( \mathcal{R}_{\text{laat}} \)):</strong> Penalizes picking up cards due
+            to card lead failures. Let \( e \in E_t \) be engine events during step \( t \). For each laat
+            event, let \( C_e \) be the card count collected, and let \( \text{col}_e \) be the
+            collector's absolute index (0 is the agent):
+            <div class="equation">
+                \[
+                \mathcal{R}_{\text{laat}} = \sum_{e \in E_t, \text{type}(e)=\text{"laat"}} \begin{cases}
+                -0.03 \cdot C_e & \text{if } \text{col}_e = 0 \quad \text{(Agent collected laat pile)} \\
+                +0.01 \cdot C_e & \text{if } \text{col}_e \neq 0 \quad \text{(Opponent collected laat pile)}
+                \end{cases}
+                \]
+            </div>
+        </li>
+        <li>
+            <strong>Terminal Win/Loss (\( \mathcal{R}_{\text{terminal}} \)):</strong> Evaluated only at the
+            final step. Let \( W \) be the set of players with the minimum hand size and \( L \) be the set of
+            players with the maximum hand size:
+            <div class="equation">
+                \[
+                \mathcal{R}_{\text{terminal}} = \begin{cases}
+                +5.0 & \text{if } t \text{ is terminal and } 0 \in W \\
+                -5.0 & \text{if } t \text{ is terminal and } 0 \in L \\
+                0.0 & \text{otherwise}
+                \end{cases}
+                \]
+            </div>
+        </li>
+    </ul>
+
+    <p>
+        By keeping intermediate shaping rewards small, we prevent the agent from optimizing for short-term card
+        counts at the expense of overall victory.
+    </p>
+
+    <h3 id="models"><span class="header-num">5.3</span> Model Analyses</h3>
+    <p>
+        Over the course of the project, four distinct model versions were trained and evaluated. The
+        hyperparameters and architectures for each training run are specified below:
+    </p>
+
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Parameter</th>
+                    <th>Model 1 (Baseline)</th>
+                    <th>Model 2 (Pretrained)</th>
+                    <th>Model 3 (League PPO)</th>
+                    <th>Model 4 (Max-Win PPO)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>PPO Init Source</strong></td>
+                    <td>Random weights</td>
+                    <td>BC</td>
+                    <td>BC</td>
+                    <td>BC</td>
+                </tr>
+                <tr>
+                    <td><strong>Total Timesteps</strong></td>
+                    <td>300,000</td>
+                    <td>300,000</td>
+                    <td>800,000</td>
+                    <td>1,000,000</td>
+                </tr>
+                <tr>
+                    <td><strong>Learning Rate</strong></td>
+                    <td>\( 1 \times 10^{-4} \)</td>
+                    <td>\( 1 \times 10^{-4} \)</td>
+                    <td>\( 1 \times 10^{-4} \)</td>
+                    <td>\( 1 \times 10^{-4} \)</td>
+                </tr>
+                <tr>
+                    <td><strong>Batch Size</strong></td>
+                    <td>64</td>
+                    <td>64</td>
+                    <td>64</td>
+                    <td>64</td>
+                </tr>
+                <tr>
+                    <td><strong>n_steps</strong></td>
+                    <td>512</td>
+                    <td>512</td>
+                    <td>512</td>
+                    <td>512</td>
+                </tr>
+                <tr>
+                    <td><strong>Network Architecture</strong></td>
+                    <td><code>[128, 128]</code></td>
+                    <td><code>[256, 256]</code></td>
+                    <td><code>[256, 256]</code></td>
+                    <td><code>[256, 256]</code></td>
+                </tr>
+                <tr>
+                    <td><strong>Opponent Pool</strong></td>
+                    <td>heuristic bots</td>
+                    <td>heuristic bots</td>
+                    <td>Pool of previous trained models</td>
+                    <td>Pool of previous trained models</td>
+                </tr>
+                <tr>
+                    <td><strong>Opponent Checkpoint</strong></td>
+                    <td>None</td>
+                    <td>None</td>
+                    <td>Model 2</td>
+                    <td>Model 3</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <p>
+        Below is a detailed analysis of the objectives, pretraining conditions, opponent distributions, and
+        strategic outcomes for each model checkpoint:
+    </p>
+
+    <ul>
+        <li>
+            <strong>Model 1 (Baseline PPO):</strong>
+            Trained entirely from scratch with no pretraining using a smaller MLP network architecture
+            (<code>[128, 128]</code>) against static heuristic bots. It verified the basic functionality of the
+            Gymnasium wrapper and legal action masking, but random exploration was insufficient to discover
+            complex card conservation strategies, yielding a standardized league win rate of <code>0.540</code>.
+        </li>
+        <li>
+            <strong>Model 2 (Imitation-Pretrained PPO):</strong>
+            Pretrained using Behavior Cloning on 50,000 heuristic decisions using a larger
+            <code>[256, 256]</code> architecture. The warm start allowed it to immediately start training PPO
+            with a baseline understanding of card value. It developed a clean, high-card laat playing discipline
+            (playing rank \( \ge 8 \) cards in laat situations 77.2% of the time), achieving a peak win rate of
+            <code>0.947</code> in baseline tests and <code>0.857</code> in league testing.
+        </li>
+        <li>
+            <strong>Model 3 (Robust League Agent):</strong>
+            Pretrained on 200,000 decisions from Model 2 and trained for 800,000 steps using a <strong>League
+                Pool</strong> of dynamic opponents. By playing against a shifting pool of intelligent,
+            historical checkpoints, Model 3 learned to generalize and handle dynamic seating positions. While it
+            slightly relaxed Model 2's strict high-card laat, it demonstrated much greater robustness, achieving a top
+            standardized league win rate of <code>0.903</code>.
+        </li>
+        <li>
+            <strong>Model 4 (Synthetic Multi-Teacher Experiment):</strong>
+            Initialized from a multi-teacher dataset of 400,000 decisions using a categorical mixture: 45% Model
+            3, 30% Model 2, 20% heuristic, and 5% random actions. It was trained for 1,000,000 steps against the
+            league. It successfully combined the tactical robustness of Model 3 with the stylistic high-card
+            laat discipline of Model 2, reaching a standardized league win rate of <code>0.890</code> and
+            maintaining a 72.3% high-card laat rate.
+        </li>
+    </ul>
+
+    <p>
+        To evaluate general robustness, all checkpoints were benchmarked over 300 test episodes against a
+        randomized League Pool. The results highlight the progression in performance:
+    </p>
+
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Evaluation Metric</th>
+                    <th>Model 1 (Baseline)</th>
+                    <th>Model 2 (PPO + BC)</th>
+                    <th>Model 3 (League PPO)</th>
+                    <th>Model 4 (Best Candidate)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Win Rate</strong> (higher is better)</td>
+                    <td>0.540</td>
+                    <td>0.857</td>
+                    <td><strong>0.903</strong></td>
+                    <td>0.890</td>
+                </tr>
+                <tr>
+                    <td><strong>Loss Rate</strong> (lower is better)</td>
+                    <td>0.320</td>
+                    <td>0.143</td>
+                    <td><strong>0.097</strong></td>
+                    <td>0.107</td>
+                </tr>
+                <tr>
+                    <td><strong>Avg. Final Hand Size</strong> (lower is better)</td>
+                    <td>14.12</td>
+                    <td>5.68</td>
+                    <td><strong>4.45</strong></td>
+                    <td>4.78</td>
+                </tr>
+                <tr>
+                    <td><strong>Laat High-Card Rate</strong> (rank \( \ge 8 \))</td>
+                    <td>0.485</td>
+                    <td><strong>0.772</strong></td>
+                    <td>0.680</td>
+                    <td>0.723</td>
+                </tr>
+                <tr>
+                    <td><strong>Laat Low-Card Rate</strong> (rank \( \le 2 \))</td>
+                    <td>0.154</td>
+                    <td><strong>0.015</strong></td>
+                    <td>0.056</td>
+                    <td>0.023</td>
+                </tr>
+                <tr>
+                    <td><strong>Composite Score</strong> (higher is better)</td>
+                    <td>1.22</td>
+                    <td>65.74</td>
+                    <td><strong>75.87</strong></td>
+                    <td>73.30</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h2 id="conclusion"><span class="header-num">6</span> Conclusion</h2>
+
+    <h3 id="conclusion-eval-methods"><span class="header-num">6.1</span> Strategy Evaluation Methodologies</h3>
+    <p>
+        Evaluation methodologies extend far beyond standard win rates by employing specialized strategy scripts
+        that measure card-use behavior, average final hand size, and specific reactions to being forced into
+        giving laat. A composite score aggregates these metrics, explicitly favoring agents that win cleanly
+        with fewer remaining cards and absolutely zero invalid actions.
+    </p>
+
+    <h3 id="conclusion-insights"><span class="header-num">6.2</span> Some key insights:</h3>
+    <p>
+        Development lifecycle yielded several key insights:
+    </p>
+    <ul>
+        <li><strong>Action Masking:</strong> Essential for convergence in card games; without masking, the agent
+            spends too much capacity exploring invalid card plays.</li>
+        <li><strong>Warm Starts:</strong> Initializing PPO from behavior cloned weights dramatically accelerates
+            training and guides the agent toward human-like card discipline.</li>
+        <li><strong>League Training:</strong> Crucial for robustness, although it can dilute specific stylistic
+            behaviors (like pure high-card laat play).</li>
+    </ul>
+</section>
