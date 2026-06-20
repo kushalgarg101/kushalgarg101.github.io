@@ -1,17 +1,14 @@
 ---
-layout: post
-title: "Mastering Laat: Training a Reinforcement Learning Agent for a Traditional Card Game"
+title: "Building a Reinforcement Learning Agent for the Game of Laat"
 date: 2026-06-03
-summary: "An in-depth exploration of training reinforcement learning agents for Laat using behavior cloning, Maskable
-PPO, and league training; from game design to evaluation."
-tags: [Reinforcement Learning, Deep Learning, Card Games]
+summary: "Designing RL architectures with action masking, perspective rotation, and card-aware encodings for a trick-taking card game."
+tags: [Reinforcement Learning, PyTorch, Card Games, PPO, Behavior Cloning]
 ---
-
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 
 <section id="laat-rl-agent-post">
     <div class="game-ui-container">
-        <img src="{{ '/assets/images/game_ui.png' | relative_url }}" alt="Laat Game UI">
+        <img src="images/game_ui.png" alt="Laat Game UI">
     </div>
 
     <p class="intro">
@@ -310,7 +307,7 @@ tags: [Reinforcement Learning, Deep Learning, Card Games]
     </p>
 
     <figure>
-        <img src="{{ '/assets/images/bc_clone.png' | relative_url }}" class="BC-architecture" alt="BC Architecture">
+        <img src="images/bc_clone.png" class="BC-architecture" alt="BC Architecture">
         <figcaption> Behavior Cloning Architecture </figcaption>
     </figure>
 
@@ -356,7 +353,7 @@ tags: [Reinforcement Learning, Deep Learning, Card Games]
     </p>
 
     <figure>
-        <img src="{{ '/assets/images/ppo.png' | relative_url }}" alt="PPO Architecture">
+        <img src="images/ppo.png" alt="PPO Architecture">
         <figcaption> Proximal Policy Optimization Architecture </figcaption>
     </figure>
 
@@ -516,7 +513,7 @@ tags: [Reinforcement Learning, Deep Learning, Card Games]
     </p>
 
     <figure>
-        <img src="{{ '/assets/images/input.png' | relative_url }}" alt="Observation Vector Breakdown">
+        <img src="images/input.png" alt="Observation Vector Breakdown">
         <figcaption>Observation Vector Breakdown</figcaption>
     </figure>
 
